@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AdmitFlow AI — 입시 컨설팅 관리 시스템",
-  description: "GCP & Telegram 통합 입시 컨설팅 관리 솔루션. AI 기반 학생 역량 분석, 성적 추이 시각화, 자동 보고서 생성.",
+  title: 'EduFlow AI - 통합 입시 컨설팅 관리 시스템',
+  description: 'AI 기반 고등학교 생활기록부 관리 및 고객 관리 솔루션',
 };
 
 export default function RootLayout({

@@ -796,11 +796,13 @@ h4 { font-size: 1.1rem; }
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
+    width: 280px; /* Slightly wider on mobile for better touch targets */
   }
 
   .sidebar.open {
@@ -809,10 +811,23 @@ h4 { font-size: 1.1rem; }
 
   .main-content {
     margin-left: 0;
+    transition: transform var(--transition-base);
   }
+
+  /* When sidebar is open on mobile, we can slightly push the content */
+  /* .app-layout:has(.sidebar.open) .main-content { transform: translateX(20px); } */
 
   .header {
     left: 0;
+    padding: 0 var(--space-md);
+  }
+
+  .header-title {
+    font-size: 1rem;
+    max-width: 150px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .page-container {
@@ -825,12 +840,79 @@ h4 { font-size: 1.1rem; }
 
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .modal {
+    width: 95%;
+    max-height: 90vh;
+    border-radius: var(--radius-lg);
+  }
+
+  .modal-header, .modal-body, .modal-footer {
+    padding: var(--space-md);
+  }
+
+  .btn {
+    padding: 8px 16px;
+  }
+
+  .card {
+    padding: var(--space-md);
   }
 }
 
 @media (max-width: 480px) {
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .header-actions {
+    gap: var(--space-xs);
+  }
+  
+  .header-actions .btn-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .avatar-lg {
+    width: 48px;
+    height: 48px;
+    font-size: 1.1rem;
+  }
+
+  .sidebar-brand-text {
+    font-size: 1rem;
+  }
+}
+
+/* ---------- Utility Helpers for Responsiveness ---------- */
+.mobile-hidden {
+  display: flex;
+}
+@media (max-width: 768px) {
+  .mobile-hidden {
+    display: none !important;
+  }
+}
+
+.desktop-hidden {
+  display: none !important;
+}
+@media (max-width: 768px) {
+  .desktop-hidden {
+    display: flex !important;
+  }
+}
+
+.flex-wrap-mobile {
+  display: flex;
+}
+@media (max-width: 768px) {
+  .flex-wrap-mobile {
+    flex-wrap: wrap;
+    gap: var(--space-sm);
   }
 }
 
@@ -869,3 +951,131 @@ h4 { font-size: 1.1rem; }
 .mt-lg { margin-top: var(--space-lg); }
 .mb-md { margin-bottom: var(--space-md); }
 .mb-lg { margin-bottom: var(--space-lg); }
+
+/* ---------- Horizontal Mind Map Tree ---------- */
+.mindmap-container {
+  display: flex;
+  overflow: auto;
+  padding: var(--space-2xl) var(--space-xl);
+  min-height: 500px;
+  font-family: var(--font-sans);
+}
+
+.tree, .tree ul, .tree li {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.tree {
+  display: flex;
+  align-items: center;
+}
+
+.tree ul {
+  display: flex;
+  flex-direction: column;
+  margin-left: 20px;
+  padding-left: 30px;
+}
+
+/* Vertical line connecting children */
+.tree li::before {
+  content: "";
+  position: absolute;
+  left: -30px;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: var(--border-color);
+}
+
+.tree li:first-child::before {
+  height: calc(50% + 2px);
+  top: calc(50% - 1px);
+}
+
+.tree li:last-child::before {
+  height: calc(50% + 2px);
+  bottom: calc(50% - 1px);
+  top: auto;
+}
+
+.tree li:only-child::before {
+  display: none;
+}
+
+.tree li {
+  display: flex;
+  align-items: center;
+  position: relative;
+  padding: 8px 0;
+}
+
+/* Horizontal line to the node */
+.tree li::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -30px;
+  width: 30px;
+  height: 2px;
+  background: var(--border-color);
+  transform: translateY(-50%);
+}
+
+.tree-node-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+
+.tree-node-content:hover, .tree-node-content.drag-over {
+  border-color: var(--primary-400);
+  background: var(--bg-card-hover);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+}
+
+.tree-node-content[style*="border-left-width"] {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  padding: 10px 18px;
+}
+
+.tree-new-btn {
+  background: transparent;
+  border: 1px dashed var(--gray-600);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 10px;
+  position: relative;
+  z-index: 2;
+}
+
+.tree-new-btn:hover {
+  border-color: var(--primary-400);
+  color: var(--primary-400);
+  background: rgba(99,102,241,0.05);
+}
+
+/* ---------- Activity Log ---------- */
+.activity-item-clickable:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+}

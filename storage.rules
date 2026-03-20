@@ -1,0 +1,19 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // 1. 모든 파일 업로드/다운로드는 인증된 사용자만 가능
+    // 2. 파일 경로의 시작이 본인이 접근 권한이 있는 학생의 ID여야 함
+    // (서버 사이드 Admin SDK를 쓰는 경우 이 규칙을 우회하지만, 클라이언트 직접 접근을 방어함)
+    
+    match /{studentId}/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 기본 거부
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

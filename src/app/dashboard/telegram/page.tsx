@@ -1,15 +1,27 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Smartphone, MessageSquare, History, Send, CheckCircle } from 'lucide-react';
 
 export default function TelegramPage() {
+    const [authMode, setAuthMode] = useState<'demo' | 'user'>('user');
     const [isConnected, setIsConnected] = useState(false);
     const [authCode, setAuthCode] = useState('');
-    const [commandLog, setCommandLog] = useState([
+
+    useEffect(() => {
+        const mode = localStorage.getItem('authMode') as 'demo' | 'user';
+        if (mode) setAuthMode(mode);
+    }, []);
+
+    const isDemo = authMode === 'demo';
+
+    const demoLog = [
         { time: '14:30', command: '/조회 김민준', response: '최근 14일 활동 요약 전송 완료', status: 'success' },
         { time: '14:25', command: '/차트 이서연', response: '성적 차트 이미지 전송 완료', status: 'success' },
         { time: '13:50', command: '/보고서확정 김민준', response: '보고서 확정 및 PDF 전송 완료', status: 'success' },
-    ]);
+    ];
+
+    const commandLog = isDemo ? demoLog : [];
 
     const handleConnect = () => {
         if (authCode.length === 6) {
@@ -27,7 +39,10 @@ export default function TelegramPage() {
             <div className="grid-2" style={{ gap: 'var(--space-lg)' }}>
                 {/* Connection Status */}
                 <div className="card">
-                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>📱 연동 상태</h3>
+                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Smartphone size={18} color="var(--primary-400)" />
+                        연동 상태
+                    </h3>
                     {isConnected ? (
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
@@ -66,7 +81,10 @@ export default function TelegramPage() {
 
                 {/* Available Commands */}
                 <div className="card">
-                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>💬 사용 가능한 명령어</h3>
+                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <MessageSquare size={18} color="var(--success-400)" />
+                        사용 가능한 명령어
+                    </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
                         {[
                             { cmd: '/조회 [학생명]', desc: '최근 활동 요약 브리핑' },
@@ -87,7 +105,10 @@ export default function TelegramPage() {
 
                 {/* Command Log */}
                 <div className="card" style={{ gridColumn: '1 / -1' }}>
-                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>📜 최근 명령 기록</h3>
+                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <History size={18} color="var(--warning-400)" />
+                        최근 명령 기록
+                    </h3>
                     <div className="table-wrapper">
                         <table className="table">
                             <thead>
@@ -104,9 +125,17 @@ export default function TelegramPage() {
                                         <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{log.time}</td>
                                         <td><code style={{ color: 'var(--primary-400)' }}>{log.command}</code></td>
                                         <td style={{ fontSize: '0.85rem' }}>{log.response}</td>
-                                        <td><span className="tag tag-green">✅ 성공</span></td>
+                                        <td>
+                                            <span className="tag tag-green" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                <CheckCircle size={12} />
+                                                성공
+                                            </span>
+                                        </td>
                                     </tr>
                                 ))}
+                                {commandLog.length === 0 && (
+                                    <tr><td colSpan={4} style={{ textAlign: 'center', padding: 'var(--space-xl)', color: 'var(--text-muted)' }}>명령 기록이 없습니다.</td></tr>
+                                )}
                             </tbody>
                         </table>
                     </div>

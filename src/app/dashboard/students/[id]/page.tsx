@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { use } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -16,7 +18,32 @@ import {
     ArcElement,
 } from 'chart.js';
 import { Line, Radar } from 'react-chartjs-2';
-import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore } from '@/lib/types';
+import { 
+    ArrowLeft,
+    Layout, 
+    FileText, 
+    Network, 
+    BarChart, 
+    Book, 
+    Link as LinkIcon, 
+    Brain, 
+    Search as SearchIcon,
+    Folder,
+    FolderOpen,
+    File,
+    ChevronRight,
+    ChevronDown,
+    Plus,
+    X,
+    Trash2,
+    AlertTriangle,
+    Pencil,
+    Loader2
+} from 'lucide-react';
+import { auth } from '@/lib/firebase';
+import { studentService } from '@/lib/services/studentService';
+import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore, BookRecord, SubjectResource, FileFolder, FileCategory } from '@/lib/types';
+import { FILE_CATEGORIES } from '@/lib/types';
 
 ChartJS.register(
     CategoryScale, LinearScale, PointElement, LineElement,
@@ -26,116 +53,59 @@ ChartJS.register(
 // ============ DEMO DATA ============
 
 const demoStudents: Record<string, Student> = {
-    'stu-001': { id: 'stu-001', name: '김민준', grade: 2, school: '서울과학고등학교', targetUniv: '서울대학교', targetMajor: '물리학과', consultantId: 'demo', createdAt: '2025-03-15', updatedAt: '2026-02-17' },
-    'stu-002': { id: 'stu-002', name: '이서연', grade: 3, school: '대원외국어고등학교', targetUniv: '연세대학교', targetMajor: '국제학과', consultantId: 'demo', createdAt: '2025-06-01', updatedAt: '2026-02-16' },
-    'stu-003': { id: 'stu-003', name: '박지호', grade: 1, school: '한영중학교 (예비고1)', targetUniv: '미정', targetMajor: '공학 계열', consultantId: 'demo', createdAt: '2026-01-10', updatedAt: '2026-02-15' },
-    'stu-004': { id: 'stu-004', name: '최수아', grade: 3, school: '민족사관고등학교', targetUniv: 'KAIST', targetMajor: '전산학부', consultantId: 'demo', createdAt: '2024-09-20', updatedAt: '2026-02-14' },
+    'stu-001': { id: 'stu-001', name: '김민준', grade: 2, school: '서울과학고등학교', classNumber: 3, studentNumber: 12, teacherMemo: '', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-001', consultantId: 'demo', createdAt: '2025-03-15', updatedAt: '2026-02-17' },
+    'stu-002': { id: 'stu-002', name: '이서연', grade: 3, school: '대원외국어고등학교', classNumber: 1, studentNumber: 5, teacherMemo: '', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-002', consultantId: 'demo', createdAt: '2025-06-01', updatedAt: '2026-02-16' },
+    'stu-003': { id: 'stu-003', name: '박지호', grade: 1, school: '한영중학교 (예비고1)', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-003', consultantId: 'demo', createdAt: '2026-01-10', updatedAt: '2026-02-15' },
+    'stu-004': { id: 'stu-004', name: '최수아', grade: 3, school: '민족사관고등학교', classNumber: 2, studentNumber: 8, teacherMemo: '', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-004', consultantId: 'demo', createdAt: '2024-09-20', updatedAt: '2026-02-14' },
 };
 
-const initialMemos: Memo[] = [
-    { id: 'm1', studentId: 'stu-001', content: '물리 심화 탐구 보고서 초안 제출. 엔트로피 관련 실험 설계 우수. 열역학 제2법칙을 독창적으로 접근.', tags: ['물리', '탐구', '열역학'], category: '진로활동', createdAt: '2026-02-17T14:30:00' },
-    { id: 'm2', studentId: 'stu-001', content: '수학 경시대회 예선 통과. AMC 12 준비 중. 조합론 영역 보강 필요.', tags: ['수학', '경시대회'], category: '자율활동', createdAt: '2026-02-14T10:00:00' },
-    { id: 'm3', studentId: 'stu-001', content: '물리 동아리에서 양자역학 세미나 발표. 파동-입자 이중성 주제. 발표력 우수.', tags: ['물리', '동아리', '발표'], category: '동아리', createdAt: '2026-02-10T15:30:00' },
-    { id: 'm4', studentId: 'stu-001', content: '멘토링 봉사 활동 — 중학생 대상 물리 실험 기초 교육. 리더십 및 설명 능력 향상.', tags: ['봉사', '멘토링'], category: '봉사활동', createdAt: '2026-02-05T13:00:00' },
-];
+const initialMemos: Memo[] = [];
 
-const initialFiles: StudentFile[] = [
-    { id: 'f1', studentId: 'stu-001', fileName: '물리탐구보고서_엔트로피.pdf', gcsPath: 'stu-001/진로활동/2026/물리탐구보고서.pdf', fileType: 'pdf', category: '진로활동', tags: ['물리', '엔트로피'], summary: '열역학 제2법칙을 실생활에 적용한 실험 보고서', uploadedAt: '2026-02-15T09:00:00' },
-    { id: 'f2', studentId: 'stu-001', fileName: '2학년_1학기_성적표.pdf', gcsPath: 'stu-001/성적표/2025/2-1성적표.pdf', fileType: 'pdf', category: '성적표', tags: ['성적'], summary: '2학년 1학기 내신 성적표', uploadedAt: '2025-07-10T14:00:00' },
-    { id: 'f3', studentId: 'stu-001', fileName: '양자역학_세미나_발표자료.pdf', gcsPath: 'stu-001/동아리/2026/양자역학세미나.pdf', fileType: 'pdf', category: '동아리', tags: ['물리', '양자역학', '발표'], summary: '동아리 양자역학 세미나 발표 PPT', uploadedAt: '2026-02-10T16:00:00' },
-];
+const initialFolders: FileFolder[] = [];
 
-const initialGrades: GradeRecord[] = [
-    {
-        id: 'g1', studentId: 'stu-001', examType: '내신', year: 2025, semester: 1, examPeriod: '중간고사',
-        subjects: [
-            { name: '국어', score: 90, grade: 2 },
-            { name: '수학', score: 95, grade: 1 },
-            { name: '영어', score: 85, grade: 3 },
-            { name: '물리학Ⅰ', score: 96, grade: 1 },
-            { name: '화학Ⅰ', score: 88, grade: 2 },
-        ],
-        createdAt: '2025-05-10',
-    },
-    {
-        id: 'g1b', studentId: 'stu-001', examType: '내신', year: 2025, semester: 1, examPeriod: '기말고사',
-        subjects: [
-            { name: '국어', score: 92, grade: 2 },
-            { name: '수학', score: 97, grade: 1 },
-            { name: '영어', score: 88, grade: 3 },
-            { name: '물리학Ⅰ', score: 98, grade: 1 },
-            { name: '화학Ⅰ', score: 90, grade: 2 },
-        ],
-        createdAt: '2025-07-15',
-    },
-    {
-        id: 'g2', studentId: 'stu-001', examType: '내신', year: 2025, semester: 2, examPeriod: '중간고사',
-        subjects: [
-            { name: '국어', score: 88, grade: 3 },
-            { name: '수학', score: 96, grade: 1 },
-            { name: '영어', score: 89, grade: 2 },
-            { name: '물리학Ⅱ', score: 97, grade: 1 },
-            { name: '화학Ⅱ', score: 91, grade: 2 },
-        ],
-        createdAt: '2025-10-15',
-    },
-    {
-        id: 'g2b', studentId: 'stu-001', examType: '내신', year: 2025, semester: 2, examPeriod: '기말고사',
-        subjects: [
-            { name: '국어', score: 90, grade: 2 },
-            { name: '수학', score: 98, grade: 1 },
-            { name: '영어', score: 91, grade: 2 },
-            { name: '물리학Ⅱ', score: 99, grade: 1 },
-            { name: '화학Ⅱ', score: 93, grade: 1 },
-        ],
-        createdAt: '2025-12-20',
-    },
-    {
-        id: 'g3', studentId: 'stu-001', examType: '모의고사', year: 2025, month: 6,
-        subjects: [
-            { name: '국어', standardScore: 128, percentile: 92 },
-            { name: '수학', standardScore: 140, percentile: 98 },
-            { name: '영어', grade: 2 },
-            { name: '물리학Ⅰ', standardScore: 68, percentile: 97 },
-        ],
-        createdAt: '2025-06-15',
-    },
-    {
-        id: 'g4', studentId: 'stu-001', examType: '모의고사', year: 2025, month: 9,
-        subjects: [
-            { name: '국어', standardScore: 131, percentile: 94 },
-            { name: '수학', standardScore: 142, percentile: 99 },
-            { name: '영어', grade: 1 },
-            { name: '물리학Ⅰ', standardScore: 70, percentile: 99 },
-        ],
-        createdAt: '2025-09-15',
-    },
-];
+const initialFiles: StudentFile[] = [];
 
-const demoCompetency: CompetencyScore = {
-    학업역량: 9,
-    진로역량: 8,
-    자기주도성: 8,
-    발전가능성: 9,
-    공동체의식: 7,
+const initialGrades: GradeRecord[] = [];
+
+// (Unused demo data removed)
+
+
+const emptyCompetency: CompetencyScore = {
+    학업역량: 0,
+    진로역량: 0,
+    자기주도성: 0,
+    발전가능성: 0,
+    공동체의식: 0,
 };
 
-const demoEvidences = [
-    { competency: '학업역량', score: 9, evidence: '수학·물리 과목에서 지속적 1등급을 유지하며, 경시대회 예선 통과 등 탁월한 학업 성취도를 보임.' },
-    { competency: '진로역량', score: 8, evidence: '물리학 심화 탐구(엔트로피), 양자역학 세미나 등 전공 적합성이 매우 높은 활동 수행.' },
-    { competency: '자기주도성', score: 8, evidence: '독자적으로 열역학 실험을 설계하고, AMC 경시대회를 스스로 준비하는 등 자기주도적 학습 태도 확인.' },
-    { competency: '발전가능성', score: 9, evidence: '내신 성적이 1학년 대비 지속 상승 추세이며, 탐구 주제의 깊이가 심화되는 발전적 패턴 관찰.' },
-    { competency: '공동체의식', score: 7, evidence: '멘토링 봉사 활동을 통해 리더십을 보여주나, 다양한 공동체 참여 경험의 확대 필요.' },
-];
+const initialBooks: BookRecord[] = [];
+
+const initialResources: SubjectResource[] = [];
 
 // ============ TABS ============
 
-type Tab = 'overview' | 'memos' | 'files' | 'grades' | 'analysis' | 'search';
+type Tab = 'overview' | 'memos' | 'files' | 'grades' | 'books' | 'resources' | 'analysis' | 'search' | 'log';
 
 export default function StudentDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
-    const student = demoStudents[id] || demoStudents['stu-001'];
+    const [loading, setLoading] = useState(true);
+    const [isDemo, setIsDemo] = useState(false);
+    
+    const [student, setStudent] = useState<Student | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
+    const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'idle'>('idle');
+    const [userRole, setUserRole] = useState<'consultant' | 'manager'>('consultant');
+    const [parentConsultantId, setParentConsultantId] = useState<string | null>(null);
+
+    const searchParams = useSearchParams();
+    const urlTab = searchParams.get('tab');
+
+    // URL 파라미터를 기반으로 초기 탭 설정
+    useEffect(() => {
+        if (urlTab && ['overview', 'memos', 'files', 'grades', 'books', 'resources', 'analysis', 'search', 'log'].includes(urlTab)) {
+            setActiveTab(urlTab as Tab);
+        }
+    }, [urlTab]);
 
     // Toast state
     const [toast, setToast] = useState<string | null>(null);
@@ -147,36 +117,38 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     // Edit student state
     const [showEditModal, setShowEditModal] = useState(false);
     const [editForm, setEditForm] = useState({
-        name: student.name,
-        grade: student.grade,
-        school: student.school,
-        targetUniv: student.targetUniv || '',
-        targetMajor: student.targetMajor || '',
+        name: '', grade: 1, school: '', classNumber: '' as number | '', studentNumber: '' as number | '',
+        teacherMemo: '', studentMemo: '', targetUniv: '', targetMajor: '',
     });
 
     // Memo state
-    const [memos, setMemos] = useState<Memo[]>(initialMemos);
+    const [memos, setMemos] = useState<Memo[]>([]);
     const [newMemo, setNewMemo] = useState('');
     const [memoCategory, setMemoCategory] = useState('진로활동');
     const [memoTags, setMemoTags] = useState('');
+    const [editingMemoId, setEditingMemoId] = useState<string | null>(null);
+    const [editMemoContent, setEditMemoContent] = useState('');
 
     // File upload state
-    const [files, setFiles] = useState<StudentFile[]>(initialFiles);
+    const [files, setFiles] = useState<StudentFile[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     const [uploadedFile, setUploadedFile] = useState<{ name: string; parsing: boolean; result?: { category: string; tags: string[]; summary: string } } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Grade state
-    const [grades, setGrades] = useState<GradeRecord[]>(initialGrades);
+    const [grades, setGrades] = useState<GradeRecord[]>([]);
     const [showGradeForm, setShowGradeForm] = useState(false);
     const [gradeForm, setGradeForm] = useState({
         examType: '내신' as '내신' | '모의고사',
-        year: 2026,
+        year: new Date().getFullYear(),
+        studentGrade: 1, // 학생 학년 (1, 2, 3)
         semester: 1,
         examPeriod: '중간고사' as '중간고사' | '기말고사',
         month: 3,
-        subjects: [{ name: '', score: undefined as number | undefined, grade: undefined as number | undefined }] as SubjectGrade[],
+        subjects: [{ name: '', score: null as number | null, grade: null as number | null }] as SubjectGrade[],
     });
+    const [isEditingGrade, setIsEditingGrade] = useState(false);
+    const [editGradeId, setEditGradeId] = useState<string | null>(null);
 
     // Chart axis controls
     const [chartMinY, setChartMinY] = useState(80);
@@ -187,118 +159,1143 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     const [searchResult, setSearchResult] = useState<{ answer: string; sources: { text: string; category: string }[] } | null>(null);
     const [isSearching, setIsSearching] = useState(false);
 
-    const tabs: { key: Tab; label: string; icon: string }[] = [
-        { key: 'overview', label: '개요', icon: '📋' },
-        { key: 'memos', label: '메모', icon: '📝' },
-        { key: 'files', label: '파일', icon: '📁' },
-        { key: 'grades', label: '성적', icon: '📊' },
-        { key: 'analysis', label: 'AI 분석', icon: '🤖' },
-        { key: 'search', label: 'AI 검색', icon: '🔍' },
-    ];
+    // Book state
+    const [books, setBooks] = useState<BookRecord[]>([]);
+    const [showBookForm, setShowBookForm] = useState(false);
+    const [bookForm, setBookForm] = useState({ title: '', author: '', imageUrl: '', subject: '', studentGrade: 1, memo: '' });
 
-    // ============ HANDLERS ============
+    // Resource state
+    const [resources, setResources] = useState<SubjectResource[]>([]);
+    const [showResourceForm, setShowResourceForm] = useState(false);
+    const [resourceForm, setResourceForm] = useState({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '' });
 
-    const handleAddMemo = () => {
-        if (!newMemo.trim()) {
-            showToast('⚠️ 메모 내용을 입력하세요.');
+    // Mind map state
+    const [selectedSemester, setSelectedSemester] = useState('1-1');
+    const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+
+    // Log tab state
+    const [logSearchQuery, setLogSearchQuery] = useState('');
+    const [logStartDate, setLogStartDate] = useState('');
+    const [logEndDate, setLogEndDate] = useState('');
+    const [logCategory, setLogCategory] = useState('전체');
+
+    // Activity log logic
+    const allActivities = useMemo(() => {
+        const all = [
+            ...memos.map(m => ({ id: m.id, date: m.createdAt, type: '메모', content: m.content, semester: undefined })),
+            ...files.map(f => ({ id: f.id, date: f.uploadedAt, type: '파일', content: f.fileName, semester: f.semester })),
+            ...grades.map(g => ({ 
+                id: g.id, 
+                date: g.createdAt, 
+                type: '성적', 
+                content: `${g.studentGrade || ''}학년 ${g.examType === '내신' ? `${g.semester || '-'}학기 ${g.examPeriod || ''}` : `${g.month || '-'}월`}`,
+                semester: g.examType === '내신' ? `${g.studentGrade}-${g.semester}` : undefined
+            })),
+            ...books.map(b => ({ id: b.id, date: b.createdAt, type: '도서', content: b.title, semester: undefined }))
+        ] as { id: string; date: string; type: string; content: string; semester?: string }[];
+        
+        return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [memos, files, grades, books]);
+
+    const recentActivities = useMemo(() => allActivities.slice(0, 5), [allActivities]);
+
+    const filteredActivities = useMemo(() => {
+        return allActivities.filter(act => {
+            const matchesQuery = act.content.toLowerCase().includes(logSearchQuery.toLowerCase()) || 
+                               act.type.toLowerCase().includes(logSearchQuery.toLowerCase());
+            
+            const matchesCategory = logCategory === '전체' || act.type === logCategory;
+            
+            const actDate = new Date(act.date);
+            const matchesStart = !logStartDate || actDate >= new Date(logStartDate);
+            const matchesEnd = !logEndDate || actDate <= new Date(logEndDate + 'T23:59:59');
+            
+            return matchesQuery && matchesCategory && matchesStart && matchesEnd;
+        });
+    }, [allActivities, logSearchQuery, logCategory, logStartDate, logEndDate]);
+    const [folders, setFolders] = useState<FileFolder[]>([]);
+    const [dragOverId, setDragOverId] = useState<string | null>(null);
+    const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
+    const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+    const [mindmapView, setMindmapView] = useState<'mindmap' | 'list'>('mindmap');
+
+    // Folder modal
+    const [showFolderModal, setShowFolderModal] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+    const [folderModalTarget, setFolderModalTarget] = useState<{ cat: string; parentId: string | null } | null>(null);
+
+    // Delete confirmation modal
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
+
+    // AI Analysis status
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    
+    // Inline Teacher Memo state
+    const [isEditingTeacherMemo, setIsEditingTeacherMemo] = useState(false);
+    const [teacherMemoValue, setTeacherMemoValue] = useState('');
+    // Timetable data (structured)
+    const [timetableData, setTimetableData] = useState<Record<string, string[]>>({
+        '월': ['', '', '', '', '', '', ''],
+        '화': ['', '', '', '', '', '', ''],
+        '수': ['', '', '', '', '', '', ''],
+        '목': ['', '', '', '', '', '', ''],
+        '금': ['', '', '', '', '', '', ''],
+    });
+
+    const fileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                resolve(base64);
+            };
+            reader.onerror = error => reject(error);
+        });
+    };
+
+    const handleScanImage = async (type: 'grade' | 'timetable') => {
+        if (!student) {
+            showToast('학생 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
             return;
         }
-        const memo: Memo = {
-            id: `m-${Date.now()}`,
-            studentId: student.id,
-            content: newMemo,
-            tags: memoTags.split(',').map(t => t.trim()).filter(Boolean),
-            category: memoCategory,
-            createdAt: new Date().toISOString(),
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async (e: any) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+
+            setIsAnalyzing(true);
+            try {
+                const base64 = await fileToBase64(file);
+                const response = await fetch('/api/analyze-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: base64, type, mimeType: file.type })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    if (type === 'grade') {
+                        const records = Array.isArray(result.data) ? result.data : [result.data];
+                        
+                        if (records.length > 0) {
+                            showToast(`🔍 ${records.length}개의 시험 기간을 분석 중입니다...`);
+                            
+                            // Process all records
+                            for (const rec of records) {
+                                let subs = rec.subjects || (Array.isArray(rec) ? rec : []);
+                                let inf = rec.info || {};
+                                
+                                const formattedSubjects = (subs && Array.isArray(subs)) ? subs.map((s: any) => ({
+                                    name: s.name || s.subject || s.과목 || s.과목명 || '',
+                                    score: (s.score || s.점수 || s.원점수 || s.point) ?? null,
+                                    grade: (s.grade || s.등급) ?? null,
+                                    rank: s.rank || s.석차 || '',
+                                    studentCount: (s.studentCount || s.수강자수) ?? null,
+                                    average: (s.average || s.과목평균 || s.평균) ?? null,
+                                    stdDev: (s.stdDev || s.표준편차 || s.표차) ?? null,
+                                    standardScore: (s.standardScore || s.표준점수 || s.stdScore) ?? null,
+                                    percentile: (s.percentile || s.백분위 || s.percent) ?? null
+                                })) : [];
+
+                                // Auto-save each record
+                                await studentService.addGrade({
+                                    studentId: id,
+                                    examType: inf.examType || '내신',
+                                    year: inf.year || new Date().getFullYear(),
+                                    studentGrade: inf.studentGrade || student.grade,
+                                    semester: inf.semester || 1,
+                                    examPeriod: inf.examPeriod || '중간고사',
+                                    month: inf.month || 3,
+                                    subjects: formattedSubjects
+                                });
+                            }
+                            
+                            // Refresh data
+                            const updatedGrades = await studentService.getGrades(id);
+                            setGrades(updatedGrades);
+                            
+                            setShowGradeForm(false);
+                            setActiveTab('grades');
+                            showToast(`✅ ${records.length}개의 성적 기록이 자동으로 생성되어 저장되었습니다!`);
+                        }
+                    } else if (type === 'timetable') {
+                        setTimetableData(result.data);
+                        showToast('✅ 시간표 데이터 분석 완료! 내용을 확인해주세요.');
+                    }
+                } else {
+                    showToast('❌ 이미지 분석 실패: ' + result.error);
+                }
+            } catch (err: any) {
+                console.error("Analysis error:", err);
+                showToast('❌ 오류가 발생했습니다.');
+            } finally {
+                setIsAnalyzing(false);
+            }
         };
-        setMemos([memo, ...memos]);
-        setNewMemo('');
-        setMemoTags('');
-        showToast('✅ 메모가 저장되었습니다.');
+        input.click();
     };
 
-    const handleDeleteMemo = (memoId: string) => {
-        setMemos(memos.filter(m => m.id !== memoId));
-        showToast('🗑️ 메모가 삭제되었습니다.');
+    // Timetable upload
+    const timetableInputRef = useRef<HTMLInputElement>(null);
+
+    const handleMoveFile = async (fileId: string, newCategory: string, newFolderId: string | null) => {
+        const currentUserId = localStorage.getItem('userId');
+        try {
+            const file = files.find(f => f.id === fileId);
+            if (!file) return;
+
+            // 1. Google Drive Sync
+            if (file.driveFileId) {
+                try {
+                    const oldParentDriveId = file.folderId ? folders.find(f => f.id === file.folderId)?.driveFolderId : (student as any).driveFolderId;
+                    const newParentDriveId = newFolderId ? folders.find(f => f.id === newFolderId)?.driveFolderId : (student as any).driveFolderId;
+
+                    const currentUserId = localStorage.getItem('userId');
+                    const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+
+                    await fetch('/api/drive', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'moveFolder',
+                            fileId: file.driveFileId,
+                            oldParentId: oldParentDriveId,
+                            newParentId: newParentDriveId,
+                            consultantId: cId
+                        })
+                    });
+                } catch (err) {
+                    console.error("Drive move failed:", err);
+                }
+            }
+
+            // 2. Firestore Sync
+            await studentService.updateFile(fileId, { category: newCategory, folderId: newFolderId || undefined });
+            setFiles(prev => prev.map(f => f.id === fileId ? { ...f, category: newCategory, folderId: newFolderId || undefined } : f));
+            showToast('📂 파일이 이동되었습니다.');
+        } catch (error) {
+            console.error("Error moving file:", error);
+            showToast('❌ 파일 이동 중 오류가 발생했습니다.');
+        }
     };
+
+    const handleCreateFolder = async (name: string, category: string, parentId: string | null) => {
+        const currentUserId = localStorage.getItem('userId');
+        if (!student?.id || !name) return;
+        try {
+            // 1. Google Drive Sync first
+            let driveFolderId = '';
+            try {
+                // Find parent drive ID
+                const currentUserId = localStorage.getItem('userId');
+                const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+
+                let parentDriveId = parentId ? folders.find(f => f.id === parentId)?.driveFolderId : null;
+                
+                // 루트(학생 폴더) 직속 폴더 생성인 경우 경로 보장
+                if (!parentDriveId && student?.driveFolderId) {
+                    parentDriveId = await ensureDrivePath(category, cId as string);
+                }
+
+                const response = await fetch('/api/drive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'createFolder', name, parentId: parentDriveId, consultantId: cId })
+                });
+                const result = await response.json();
+                if (result.success) driveFolderId = result.id;
+            } catch (err) {
+                console.error("Drive sync failed, continuing with Firestore only:", err);
+            }
+
+            // 2. Save to Firestore
+            const folderData: Omit<FileFolder, 'id'> = {
+                studentId: student.id,
+                name,
+                category: category as FileCategory,
+                semester: selectedSemester,
+                parentId,
+                driveFolderId,
+                createdAt: new Date().toISOString()
+            };
+            const newId = await studentService.addFolder(folderData);
+            setFolders(prev => [...prev, { id: newId, ...folderData }]);
+            
+            // Auto-expand category and current folder
+            setExpandedNodes(prev => {
+                const next = new Set(prev);
+                next.add(category);
+                if (parentId) next.add(parentId);
+                next.add(newId);
+                return next;
+            });
+
+            showToast(`📁 ${name} 폴더가 생성되었습니다.${driveFolderId ? ' (Drive 동기화됨)' : ''}`);
+        } catch (error) {
+            console.error("Error creating folder:", error);
+            showToast('❌ 폴더 생성 중 오류가 발생했습니다.');
+        }
+    };
+
+    const confirmCreateFolder = () => {
+        if (folderModalTarget && newFolderName) {
+            handleCreateFolder(newFolderName, folderModalTarget.cat, folderModalTarget.parentId);
+            setNewFolderName('');
+            setShowFolderModal(false);
+            setFolderModalTarget(null);
+        }
+    };
+
+    const handleMoveFolder = async (folderId: string, newParentId: string | null, newCategory?: string) => {
+        const currentUserId = localStorage.getItem('userId');
+        try {
+            const folder = folders.find(f => f.id === folderId);
+            if (!folder) return;
+
+            // 1. Drive Move
+            if (folder.driveFolderId) {
+                try {
+                    const oldParentDriveId = folder.parentId ? folders.find(f => f.id === folder.parentId)?.driveFolderId : (student as any).driveFolderId;
+                    const newParentDriveId = newParentId ? folders.find(f => f.id === newParentId)?.driveFolderId : (student as any).driveFolderId;
+
+                    const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+                    await fetch('/api/drive', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'moveFolder',
+                            fileId: folder.driveFolderId,
+                            oldParentId: oldParentDriveId,
+                            newParentId: newParentDriveId,
+                            consultantId: cId
+                        })
+                    });
+                } catch (err) {
+                    console.error("Drive move failed:", err);
+                }
+            }
+
+            // 2. Firestore Update
+            const updates: Partial<FileFolder> = { parentId: newParentId };
+            if (newCategory) updates.category = newCategory as FileCategory;
+            await studentService.updateFolder(folderId, updates);
+            setFolders(prev => prev.map(f => f.id === folderId ? { ...f, ...updates } : f));
+            showToast('📂 폴더가 이동되었습니다.');
+        } catch (error) {
+            console.error("Error moving folder:", error);
+            showToast('❌ 폴더 이동 중 오류가 발생했습니다.');
+        }
+    };
+
+    const handleDownloadFile = (fileId: string) => {
+        const file = files.find(f => f.id === fileId);
+        if (file?.driveFileId) {
+            window.open(`https://drive.google.com/open?id=${file.driveFileId}`, '_blank');
+        } else {
+            showToast(`📥 ${file?.fileName || '파일'} 다운로드를 시작합니다...`);
+        }
+    };
+
+    const handleDeleteFile = (fileId: string, fileName: string) => {
+        if (userRole === 'manager') {
+            showToast('❌ 삭제 권한이 없습니다.');
+            return;
+        }
+        setDeleteTarget({ id: fileId, name: fileName, type: 'file' });
+        setShowDeleteModal(true);
+    };
+
+    const handleDeleteFolder = (folderId: string, folderName: string) => {
+        if (userRole === 'manager') {
+            showToast('❌ 삭제 권한이 없습니다.');
+            return;
+        }
+        setDeleteTarget({ id: folderId, name: folderName, type: 'folder' });
+        setShowDeleteModal(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTarget || !student || isDemo) return;
+        
+        const { id: targetId, name: targetName, type } = deleteTarget;
+        const currentUserId = localStorage.getItem('userId');
+        const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+        
+        setShowDeleteModal(false);
+
+        try {
+            if (type === 'file') {
+                const file = files.find(f => f.id === targetId);
+                
+                // 1. Google Drive Sync
+                if (file?.driveFileId) {
+                    try {
+                        await fetch('/api/drive', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'delete', fileId: file.driveFileId, consultantId: cId })
+                        });
+                    } catch (e) {
+                        console.error("Drive delete failed:", e);
+                    }
+                }
+
+                // 2. Firestore Sync
+                await studentService.deleteFile(targetId);
+                setFiles(prev => prev.filter(f => f.id !== targetId));
+                showToast(`${targetName} 파일이 삭제되었습니다.`);
+            } else {
+                const folder = folders.find(f => f.id === targetId);
+
+                // 1. Drive Delete
+                if (folder?.driveFolderId) {
+                    try {
+                        await fetch('/api/drive', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'delete', fileId: folder.driveFolderId, consultantId: cId })
+                        });
+                    } catch (e) {
+                        console.error("Drive delete failed:", e);
+                    }
+                }
+
+                // 2. Firestore Delete
+                await studentService.deleteFolder(targetId);
+                setFolders(prev => prev.filter(f => f.id !== targetId && f.parentId !== targetId));
+                setFiles(prev => prev.filter(f => f.folderId !== targetId));
+                showToast(`🗑️ "${targetName}" 폴더가 삭제되었습니다.`);
+            }
+        } catch (error) {
+            console.error("Error during deletion:", error);
+            showToast(`❌ ${type === 'file' ? '파일' : '폴더'} 삭제 중 오류가 발생했습니다.`);
+        } finally {
+            setDeleteTarget(null);
+        }
+    };
+
+    // Sub-folder design remains but color follows category
+    // Recursive function for folders
+    const renderFolder = (cat: string, folderId: string | null) => {
+        const childFolders = folders.filter(f => f.category === cat && f.semester === selectedSemester && f.parentId === folderId);
+        const childFiles = files.filter(f => f.category === cat && f.semester === selectedSemester && (f.folderId || undefined) === (folderId || undefined));
+
+        return (
+            <ul style={{ borderLeft: '1px solid var(--border-color)', marginLeft: 'var(--space-md)', paddingLeft: 'var(--space-sm)', marginTop: '4px' }}>
+                {childFolders.map(folder => {
+                    const isFolderExpanded = expandedNodes.has(folder.id);
+                    const color = { '교과활동': '#6366f1', '자율활동': '#10b981', '진로활동': '#f59e0b', '동아리': '#8b5cf6', '행특': '#ec4899', '수업량유연화': '#14b8a6', '수상경력': '#f97316', '봉사활동': '#06b6d4', '도서': '#a855f7' }[cat] || 'var(--primary-500)';
+                    return (
+                        <li key={folder.id} style={{ marginBottom: '4px' }}>
+                            <div className={`tree-node-content ${dragOverId === folder.id ? 'drag-over' : ''}`}
+                                draggable
+                                onDragStart={(e) => {
+                                    e.stopPropagation();
+                                    setDraggingFolderId(folder.id);
+                                    e.dataTransfer.setData('text/plain', folder.id);
+                                    e.currentTarget.style.opacity = '0.5';
+                                }}
+                                onDragEnd={(e) => {
+                                    setDraggingFolderId(null);
+                                    e.currentTarget.style.opacity = '1';
+                                }}
+                                onClick={(e) => { e.stopPropagation(); const next = new Set(expandedNodes); if (next.has(folder.id)) next.delete(folder.id); else next.add(folder.id); setExpandedNodes(next); }}
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId(folder.id); }}
+                                onDragLeave={() => setDragOverId(null)}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setDragOverId(null);
+                                    if (draggingFileId) {
+                                        handleMoveFile(draggingFileId, cat, folder.id);
+                                        setDraggingFileId(null);
+                                    } else if (draggingFolderId && draggingFolderId !== folder.id) {
+                                        handleMoveFolder(draggingFolderId, folder.id);
+                                        setDraggingFolderId(null);
+                                    } else {
+                                        const file = e.dataTransfer.files[0];
+                                        if (file) { handleFileUpload(file, cat, folder.id); showToast(`📁 ${folder.name} 폴더에 업로드됨`); }
+                                    }
+                                }}
+                                style={{
+                                    background: 'var(--bg-card)',
+                                    borderColor: color,
+                                    borderWidth: '1px',
+                                    borderStyle: 'solid',
+                                    boxShadow: 'var(--shadow-sm)',
+                                    padding: '6px 10px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 'var(--space-xs)',
+                                    opacity: (draggingFileId || draggingFolderId === folder.id) ? 0.7 : 1,
+                                    borderRadius: 'var(--radius-sm)',
+                                    cursor: 'grab'
+                                }}
+                            >
+                                {isFolderExpanded ? (
+                                    <FolderOpen size={16} color={color} />
+                                ) : (
+                                    <Folder size={16} color={color} />
+                                )}
+                                <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{folder.name}</span>
+                                {userRole !== 'manager' && (
+                                    <button className="btn btn-ghost btn-sm" style={{ padding: '0 4px', color: 'var(--danger-400)', marginLeft: 'auto', zIndex: 10 }} onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); }}>
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+                            {isFolderExpanded && renderFolder(cat, folder.id)}
+                        </li>
+                    );
+                })}
+                {childFiles.map(f => (
+                    <li key={f.id} style={{ marginBottom: '2px' }}>
+                        <div className="tree-node-content file-node"
+                            draggable
+                            onDragStart={(e) => {
+                                setDraggingFileId(f.id);
+                                e.dataTransfer.setData('text/plain', f.id);
+                                e.currentTarget.style.opacity = '0.5';
+                                e.currentTarget.style.transform = 'scale(0.95)';
+                            }}
+                            onDragEnd={(e) => {
+                                setDraggingFileId(null);
+                                e.currentTarget.style.opacity = '1';
+                                e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                            onClick={(e) => { e.stopPropagation(); handleDownloadFile(f.id); }}
+                            style={{
+                                background: 'rgba(255,255,255,0.03)',
+                                border: '1px dashed var(--gray-600)',
+                                padding: '5px 10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 'var(--space-xs)',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: '0.8rem',
+                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                cursor: 'grab'
+                            }}>
+                            <File size={14} color="var(--text-muted)" />
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.fileName}</span>
+                            {userRole !== 'manager' && (
+                                <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); handleDeleteFile(f.id, f.fileName); }} style={{ color: 'var(--danger-400)', padding: '0 4px' }}>
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                    </li>
+                ))}
+                <li>
+                    <div style={{ display: 'flex', gap: '8px', marginLeft: '4px', marginTop: '4px' }}>
+                        <button className="tree-new-btn" style={{ marginLeft: 0, fontSize: '0.7rem', padding: '2px 8px' }} onClick={(e) => { e.stopPropagation(); setFolderModalTarget({cat, parentId: folderId}); setShowFolderModal(true); }}>+ 폴더 추가</button>
+                        <button className="tree-new-btn" style={{ marginLeft: 0, fontSize: '0.7rem', padding: '2px 8px' }} onClick={(e) => {
+                            e.stopPropagation();
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.onchange = (ev: any) => {
+                                 const file = ev.target.files?.[0];
+                                 if (file) { handleFileUpload(file, cat, folderId); }
+                            };
+                            input.click();
+                        }}>+ 파일 추가</button>
+                    </div>
+                </li>
+            </ul>
+        );
+    };
+    const [timetableUrl, setTimetableUrl] = useState('');
+
+    // Parent portal
+    const [portalCopied, setPortalCopied] = useState(false);
+
+    // ============ CHART DATA ============
+    const lineChartData = useMemo(() => {
+        const labels = ['1-1', '1-2', '2-1', '2-2', '3-1', '3-2'];
+        const subjects = Array.from(new Set(grades.flatMap(g => g.subjects.map(s => s.name))));
+
+        const datasets = subjects.map((subName, i) => {
+            const colors = ['#818cf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'];
+            const data = labels.map(label => {
+                const [gNum, sNum] = label.split('-').map(Number);
+                const record = grades.find(r => (r.year) === gNum && r.semester === sNum && r.examType === '내신');
+                return record?.subjects.find(s => s.name === subName)?.score || null;
+            });
+            return {
+                label: subName,
+                data,
+                borderColor: colors[i % colors.length],
+                backgroundColor: `${colors[i % colors.length]}1A`,
+                tension: 0.4,
+                fill: true,
+                spanGaps: true
+            };
+        });
+
+        return { labels, datasets };
+    }, [grades]);
+
+    const lineChartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { labels: { color: '#94a3b8', font: { family: 'Inter' } } },
+            title: { display: true, text: '내신 성적 추이', color: '#f1f5f9', font: { size: 14, family: 'Inter' } },
+        },
+        scales: {
+            x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(30, 41, 59, 0.5)' } },
+            y: { min: chartMinY, max: chartMaxY, ticks: { color: '#64748b' }, grid: { color: 'rgba(30, 41, 59, 0.5)' } },
+        },
+    };
+
+    const radarData = {
+        labels: ['학업역량', '진로역량', '자기주도성', '발전가능성', '공동체의식'],
+        datasets: [{
+            label: '역량 점수',
+            data: [0, 0, 0, 0, 0], // AI analysis not yet implemented for user data
+            backgroundColor: 'rgba(99, 102, 241, 0.2)',
+            borderColor: '#6366f1',
+            borderWidth: 2,
+            pointBackgroundColor: '#6366f1',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+        }],
+    };
+
+    const radarOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            r: {
+                min: 0, max: 10,
+                ticks: { color: '#64748b', backdropColor: 'transparent', stepSize: 2 },
+                grid: { color: 'rgba(30, 41, 59, 0.5)' },
+                pointLabels: { color: '#94a3b8', font: { size: 12, family: 'Inter' } },
+                angleLines: { color: 'rgba(30, 41, 59, 0.5)' },
+            },
+        },
+        plugins: { legend: { display: false } },
+    };
+
+    const fetchData = useCallback(async (studentId: string, demoMode: boolean) => {
+        setLoading(true);
+        if (demoMode) {
+            setStudent(demoStudents[studentId] || null);
+            setMemos(initialMemos);
+            setFiles(initialFiles);
+            setGrades(initialGrades);
+            setBooks(initialBooks);
+            setResources(initialResources);
+            setFolders(initialFolders);
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const [s, m, f, g, b, fld] = await Promise.all([
+                studentService.getStudentById(studentId),
+                studentService.getMemos(studentId),
+                studentService.getFiles(studentId),
+                studentService.getGrades(studentId),
+                studentService.getBooks(studentId),
+                studentService.getFolders(studentId),
+            ]);
+            setStudent(s);
+            if (s?.timetableData) setTimetableData(s.timetableData);
+            setMemos(m);
+            setFiles(f);
+            setGrades(g);
+            setBooks(b);
+            setResources([]); // 리소스는 아직 서비스에 구현되지 않음
+            setFolders(fld);
+
+            // 구글 드라이브 루트 폴더 자동 생성 체크 (폴더가 없는 경우에만)
+            if (s && !s.driveFolderId && !demoMode) {
+                const currentUserId = localStorage.getItem('userId');
+                const pId = localStorage.getItem('parentId');
+                const cId = (pId && pId !== 'undefined') ? pId : currentUserId;
+                
+                if (cId) {
+                    try {
+                        console.log("[Drive] Creating folders for new student:", s.name);
+                        const resp = await fetch('/api/drive', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                action: 'createFolder', 
+                                name: `${s.name}_${s.school}_${s.grade}학년`, 
+                                consultantId: cId 
+                            })
+                        });
+                        const res = await resp.json();
+                        if (res.success && res.id) {
+                            await studentService.updateStudent(studentId, { driveFolderId: res.id });
+                            setStudent(prev => prev ? { ...prev, driveFolderId: res.id } : null);
+                            showToast(`📁 구글 드라이브에 "${s.name}" 폴더가 생성되었습니다.`);
+                        } else if (res.error?.includes('authentication credentials') || res.error?.includes('401')) {
+                            showToast('⚠️ 구글 인증 만료로 드라이브 폴더를 만들지 못했습니다. [설정]에서 재연결해 주세요.');
+                        }
+                    } catch (driveErr: any) {
+                        console.error("Auto drive folder creation failed:", driveErr);
+                    }
+                }
+            }
+            
+            // Intelligence Expansion: 
+            // 1. Always expand 1st level (categories)
+            // 2. Expand any folder that HAS files or sub-folders
+            const initialExpanded = new Set<string>([...FILE_CATEGORIES]);
+            
+            fld.forEach(parent => {
+                const hasSubFolders = fld.some(child => child.parentId === parent.id);
+                const hasFiles = f.some(file => file.folderId === parent.id);
+                if (hasSubFolders || hasFiles) {
+                    initialExpanded.add(parent.id);
+                }
+            });
+            
+            setExpandedNodes(initialExpanded);
+        } catch (error) {
+            console.error("Error fetching student details:", error);
+            showToast("데이터를 불러오는데 실패했습니다.");
+        }
+        setLoading(false);
+    }, []);
+
+    useEffect(() => {
+        const mode = localStorage.getItem('authMode') === 'demo';
+        setIsDemo(mode && id.startsWith('stu-'));
+
+        // 권한 정보 로드
+        const role = localStorage.getItem('role') as 'consultant' | 'manager' || 'consultant';
+        const pId = localStorage.getItem('parentId');
+        setUserRole(role);
+        setParentConsultantId(pId);
+        
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+            fetchData(id, mode && id.startsWith('stu-'));
+        });
+
+        return () => unsubscribe();
+    }, [id, fetchData]);
+
+    // Sync state and ensure Drive Folder when student is loaded
+    useEffect(() => {
+        if (!student) return;
+
+        // 1. 학생 폼 데이터 동기화
+        setEditForm({
+            name: student.name,
+            grade: student.grade,
+            school: student.school,
+            classNumber: student.classNumber || '',
+            studentNumber: student.studentNumber || '',
+            teacherMemo: student.teacherMemo || '',
+            studentMemo: student.studentMemo || '',
+            targetUniv: student.targetUniv || '',
+            targetMajor: student.targetMajor || '',
+        });
+        setTimetableUrl(student.timetableImageUrl || '');
+        if (student.timetableData) setTimetableData(student.timetableData);
+
+
+        // 2. 구글 드라이브 동기화 (EduFlow_Files 루트 하위 구조)
+        const currentUserId = localStorage.getItem('userId');
+        const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+        if (!isDemo && !student.driveFolderId && cId && cId !== 'undefined') {
+            const ensureDriveFolder = async () => {
+                setSyncStatus('syncing');
+                try {
+                    // EduFlow_Files 루트 아래에 학생 이름으로 폴더 생성/확인
+                    const response = await fetch('/api/drive', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            action: 'getOrCreatePath', 
+                            pathNames: ['EduFlow_Files', student.name], 
+                            consultantId: cId 
+                        })
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        const driveFolderId = result.id;
+                        await studentService.updateStudent(student.id, { driveFolderId });
+                        setStudent(prev => prev ? { ...prev, driveFolderId } : null);
+                        setSyncStatus('connected');
+                    }
+                } catch (err) {
+                    console.error("Drive sync error:", err);
+                    setSyncStatus('error');
+                }
+            };
+            ensureDriveFolder();
+        } else if (student.driveFolderId) {
+            setSyncStatus('connected');
+        }
+    }, [student?.id, isDemo]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         setIsDragging(false);
         const file = e.dataTransfer.files[0];
-        if (file) simulateUpload(file.name);
+        if (file) handleFileUpload(file);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const simulateUpload = (name: string) => {
-        setUploadedFile({ name, parsing: true });
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 'var(--space-md)' }}>
+                <Loader2 className="spinner" size={48} color="var(--primary-400)" />
+                <p style={{ color: 'var(--text-muted)' }}>학생 정보를 불러오는 중입니다...</p>
+            </div>
+        );
+    }
 
-        // Determine category based on file name
-        const categories = ['진로활동', '동아리', '봉사활동', '성적표', '수행평가'];
-        const randomCategory = categories[Math.floor(Math.random() * categories.length)];
-        const randomTags = [['물리', '실험'], ['수학', '문제해결'], ['영어', '에세이'], ['코딩', 'AI'], ['봉사', '멘토링']][Math.floor(Math.random() * 5)];
+    if (!student) {
+        return (
+            <div className="card" style={{ textAlign: 'center', padding: 'var(--space-3xl)' }}>
+                <Brain size={48} style={{ marginBottom: 'var(--space-md)', opacity: 0.2, margin: '0 auto' }} />
+                <h3>학생을 찾을 수 없습니다</h3>
+                <p style={{ color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>해당 ID의 학생 데이터가 존재하지 않거나 접근 권한이 없습니다.</p>
+                <Link href="/dashboard/students" className="btn btn-primary" style={{ marginTop: 'var(--space-lg)', display: 'inline-block' }}>목록으로 돌아가기</Link>
+            </div>
+        );
+    }
 
-        setTimeout(() => {
-            const result = { category: randomCategory, tags: randomTags, summary: `AI가 분석한 "${name}" 문서 요약: 주요 활동 내용과 성과를 포함하고 있습니다.` };
-            setUploadedFile({ name, parsing: false, result });
 
-            // Add to files list
-            const newFile: StudentFile = {
-                id: `f-${Date.now()}`,
+
+    const tabs: { key: Tab; label: string } [] = [
+        { key: 'overview', label: '개요' },
+        { key: 'memos', label: '메모' },
+        { key: 'files', label: '파일' },
+        { key: 'grades', label: '성적' },
+        { key: 'books', label: '도서' },
+        { key: 'resources', label: '교과 리소스' },
+        { key: 'analysis', label: 'AI 분석' },
+        { key: 'search', label: 'AI 검색' },
+        { key: 'log', label: '로그' },
+    ];
+
+    // ============ HANDLERS ============
+
+    const handleAddMemo = async () => {
+        if (!newMemo.trim()) {
+            showToast('메모 내용을 입력하세요.');
+            return;
+        }
+        
+        try {
+            const memoData: Omit<Memo, 'id' | 'createdAt'> = {
                 studentId: student.id,
-                fileName: name,
-                gcsPath: `${student.id}/${randomCategory}/${new Date().getFullYear()}/${name}`,
-                fileType: (name.split('.').pop() || 'pdf') as 'pdf' | 'hwp' | 'image' | 'other',
-                category: randomCategory,
-                tags: randomTags,
-                summary: result.summary,
-                uploadedAt: new Date().toISOString(),
+                content: newMemo,
+                tags: memoTags.split(',').map(t => t.trim()).filter(Boolean),
+                category: memoCategory,
             };
-            setFiles(prev => [newFile, ...prev]);
-            showToast(`✅ ${name} 업로드 및 AI 분석 완료!`);
-        }, 2500);
+
+            if (isDemo) {
+                const demoMemo: Memo = {
+                    ...memoData,
+                    id: `m-${Date.now()}`,
+                    createdAt: new Date().toISOString(),
+                };
+                setMemos([demoMemo, ...memos]);
+            } else {
+                const newId = await studentService.addMemo(memoData);
+                const fullMemo: Memo = {
+                    ...memoData,
+                    id: newId,
+                    createdAt: new Date().toISOString(),
+                };
+                setMemos([fullMemo, ...memos]);
+            }
+            
+            setNewMemo('');
+            setMemoTags('');
+            showToast('메모가 저장되었습니다.');
+        } catch (error) {
+            console.error("Error adding memo:", error);
+            showToast("메모 저장 중 오류가 발생했습니다.");
+        }
     };
 
-    const handleDeleteFile = (fileId: string, fileName: string) => {
-        setFiles(files.filter(f => f.id !== fileId));
-        showToast(`🗑️ ${fileName} 파일이 삭제되었습니다.`);
+    const handleDeleteMemo = async (memoId: string) => {
+        if (userRole === 'manager') {
+            showToast('❌ 삭제 권한이 없습니다.');
+            return;
+        }
+        if (confirm('메모를 삭제하시겠습니까?')) {
+            try {
+                if (!isDemo) {
+                    await studentService.deleteMemo(memoId);
+                }
+                setMemos(memos.filter(m => m.id !== memoId));
+                showToast('🗑️ 메모가 삭제되었습니다.');
+            } catch (error) {
+                console.error("Error deleting memo:", error);
+                showToast("메모 삭제 중 오류가 발생했습니다.");
+            }
+        }
     };
 
-    const handleSaveGrade = () => {
+
+
+    const ensureDrivePath = async (category: string, cId: string) => {
+        let currentRootId = student?.driveFolderId;
+        
+        // 1. 만약 학생의 루트 폴더 ID가 없거나 유효하지 않은 경우 새로 생성 시도
+        if (!currentRootId) {
+            try {
+                const resp = await fetch('/api/drive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'createFolder', 
+                        name: `${student?.name}_${student?.school}_${student?.grade}학년`, 
+                        consultantId: cId 
+                    })
+                });
+                const res = await resp.json();
+                if (res.success && res.id) {
+                    currentRootId = res.id;
+                    await studentService.updateStudent(id, { driveFolderId: res.id });
+                    setStudent(prev => prev ? { ...prev, driveFolderId: res.id } : null);
+                    console.log("[Drive] Student root folder recreated:", res.id);
+                }
+            } catch (err) {
+                console.error("Error creating initial drive folder:", err);
+                return null;
+            }
+        }
+
+        if (!currentRootId) return null;
+        
+        let gradeName = "";
+        let semesterName = "";
+        
+        if (selectedSemester.includes('학년')) {
+            const parts = selectedSemester.split(' ');
+            gradeName = parts[0];
+            semesterName = parts[1];
+        } else if (selectedSemester.includes('-')) {
+            const [g, s] = selectedSemester.split('-');
+            gradeName = `${g}학년`;
+            semesterName = `${s}학기`;
+        } else {
+            gradeName = selectedSemester;
+        }
+
+        const pathNames = [gradeName, semesterName, category].filter(Boolean);
+        
+        try {
+            const resp = await fetch('/api/drive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    action: 'getOrCreatePath', 
+                    pathNames, 
+                    parentId: currentRootId, 
+                    consultantId: cId 
+                })
+            });
+            const res = await resp.json();
+            
+            // 만약 부모 폴더(currentRootId)가 삭제되어 getOrCreatePath가 실패한 경우
+            if (!res.success && res.error?.includes('File not found')) {
+                console.warn("[Drive] Root folder seems deleted. Retrying with new folder creation...");
+                // driveFolderId를 제거하고 재귀적으로 다시 시도
+                setStudent(prev => prev ? { ...prev, driveFolderId: undefined } : null);
+                return await ensureDrivePath(category, cId);
+            }
+            
+            return res.success ? res.id : currentRootId;
+        } catch (err) {
+            console.error("Error ensuring drive path:", err);
+            return currentRootId;
+        }
+    };
+
+    const handleFileUpload = async (file: File, targetCategory?: string, targetFolderId?: string | null) => {
+        if (!student || isDemo) {
+            if (isDemo) showToast('데모 모드에서는 파일 업로드가 지원되지 않습니다.');
+            return;
+        }
+        
+        setUploadedFile({ name: file.name, parsing: true });
+        
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('studentId', student.id);
+            formData.append('semester', selectedSemester);
+            
+            // 기본 카테고리 결정
+            const categories = ['진로활동', '동아리', '봉사활동', '성적표', '수행평가'];
+            const finalCategory = targetCategory || categories[Math.floor(Math.random() * categories.length)];
+            formData.append('category', finalCategory);
+            
+            const currentUserId = localStorage.getItem('userId');
+            const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+                            
+                            if (!cId || cId === 'undefined') {
+                                showToast('❌ 컨설턴트 인증 정보가 유실되었습니다. 다시 로그인해 주세요.');
+                                return;
+                            }
+                            formData.append('consultantId', cId);
+            
+            if (targetFolderId) {
+                formData.append('folderId', targetFolderId);
+                const driveParentId = folders.find(f => f.id === targetFolderId)?.driveFolderId;
+                if (driveParentId) formData.append('driveParentId', driveParentId);
+            } else {
+                // 상위 드라이브 폴더 지정 (학년 > 학기 > 카테고리 경로 보장, 루트 폴더 없으면 자동 생성)
+                const driveParentId = await ensureDrivePath(finalCategory, cId);
+                if (driveParentId) formData.append('driveParentId', driveParentId);
+            }
+
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                setFiles(prev => [result.data, ...prev]);
+                
+                // Auto-expand category and target folder
+                setExpandedNodes(prev => {
+                    const next = new Set(prev);
+                    next.add(result.data.category);
+                    if (targetFolderId) next.add(targetFolderId);
+                    return next;
+                });
+
+                setUploadedFile({ name: file.name, parsing: false, result: { category: result.data.category, tags: result.data.tags, summary: result.data.summary } });
+                showToast(`✅ ${file.name} 업로드 및 AI 분석 완료!`);
+            } else {
+                throw new Error(result.error);
+            }
+        } catch (error: any) {
+            console.error("Upload error:", error);
+            const errorMsg = error.message || '업로드 중 오류가 발생했습니다.';
+            if (errorMsg.includes('invalid authentication credentials') || errorMsg.includes('Expired') || errorMsg.includes('401')) {
+                showToast('❌ 구글 인증이 만료되었습니다. [설정] 페이지에서 구글 계정을 다시 연결해 주세요.');
+            } else {
+                showToast(`❌ 업로드 실패: ${errorMsg}`);
+            }
+            setUploadedFile(null);
+        }
+    };
+
+
+
+    const handleEditGrade = (record: GradeRecord) => {
+        setGradeForm({
+            examType: record.examType,
+            year: record.year,
+            studentGrade: record.studentGrade || 1,
+            semester: record.semester || 1,
+            examPeriod: record.examPeriod || '중간고사',
+            month: record.month || 3,
+            subjects: record.subjects.map(s => ({...s}))
+        });
+        setEditGradeId(record.id);
+        setIsEditingGrade(true);
+        setShowGradeForm(true);
+        setActiveTab('grades');
+    };
+
+    const handleSaveGrade = async () => {
         const validSubjects = gradeForm.subjects.filter(s => s.name.trim());
         if (validSubjects.length === 0) {
             showToast('⚠️ 최소 하나의 과목을 입력하세요.');
             return;
         }
 
-        const newGrade: GradeRecord = {
-            id: `g-${Date.now()}`,
-            studentId: student.id,
-            examType: gradeForm.examType,
-            year: gradeForm.year,
-            semester: gradeForm.examType === '내신' ? gradeForm.semester : undefined,
-            examPeriod: gradeForm.examType === '내신' ? gradeForm.examPeriod : undefined,
-            month: gradeForm.examType === '모의고사' ? gradeForm.month : undefined,
-            subjects: validSubjects,
-            createdAt: new Date().toISOString(),
-        };
+        try {
+            const gradeData: Omit<GradeRecord, 'id' | 'createdAt'> = {
+                studentId: id,
+                examType: gradeForm.examType,
+                year: gradeForm.year,
+                studentGrade: gradeForm.studentGrade,
+                semester: gradeForm.examType === '내신' ? gradeForm.semester : null,
+                examPeriod: gradeForm.examType === '내신' ? gradeForm.examPeriod : null,
+                month: gradeForm.examType === '모의고사' ? gradeForm.month : null,
+                subjects: validSubjects,
+            };
 
-        setGrades([newGrade, ...grades]);
-        setShowGradeForm(false);
-        setGradeForm({
-            examType: '내신',
-            year: 2026,
-            semester: 1,
-            examPeriod: '중간고사',
-            month: 3,
-            subjects: [{ name: '', score: undefined, grade: undefined }],
-        });
-        showToast('✅ 성적이 저장되었습니다.');
+            if (isEditingGrade && editGradeId) {
+                // Update existing record
+                if (isDemo) {
+                    setGrades(grades.map(g => g.id === editGradeId ? { ...g, ...gradeData } : g));
+                } else {
+                    await studentService.updateGrade(editGradeId, gradeData);
+                    // Refresh data
+                    const updatedGrades = await studentService.getGrades(id);
+                    setGrades(updatedGrades);
+                }
+                showToast('✅ 성적이 수정되었습니다.');
+            } else {
+                // Add new record
+                if (isDemo) {
+                    const demoGrade: GradeRecord = {
+                        ...gradeData,
+                        id: `g-${Date.now()}`,
+                        createdAt: new Date().toISOString(),
+                    } as GradeRecord;
+                    setGrades([demoGrade, ...grades]);
+                } else {
+                    const newId = await studentService.addGrade(gradeData);
+                    const fullGrade: GradeRecord = {
+                        ...gradeData,
+                        id: newId,
+                        createdAt: new Date().toISOString(),
+                    } as GradeRecord;
+                    setGrades([fullGrade, ...grades]);
+                }
+                showToast('✅ 성적이 저장되었습니다.');
+            }
+
+            setShowGradeForm(false);
+            setIsEditingGrade(false);
+            setEditGradeId(null);
+            setGradeForm({
+                examType: '내신',
+                year: new Date().getFullYear(),
+                studentGrade: student?.grade || 1,
+                semester: 1,
+                examPeriod: '중간고사',
+                month: 3,
+                subjects: [{ name: '', score: null, grade: null }],
+            });
+            showToast('✅ 성적이 저장되었습니다.');
+        } catch (error) {
+            console.error("Error saving grade:", error);
+            showToast("성적 저장 중 오류가 발생했습니다.");
+        }
     };
 
-    const handleDeleteGrade = (gradeId: string) => {
-        setGrades(grades.filter(g => g.id !== gradeId));
-        showToast('🗑️ 성적 기록이 삭제되었습니다.');
+    const handleDeleteGrade = async (gradeId: string) => {
+        if (userRole === 'manager') {
+            showToast('❌ 삭제 권한이 없습니다.');
+            return;
+        }
+        if (confirm('성적 기록을 삭제하시겠습니까?')) {
+            try {
+                if (!isDemo) {
+                    await studentService.deleteGrade(gradeId);
+                }
+                setGrades(grades.filter(g => g.id !== gradeId));
+                showToast('🗑️ 성적 기록이 삭제되었습니다.');
+            } catch (error) {
+                console.error("Error deleting grade:", error);
+                showToast("성적 삭제 중 오류가 발생했습니다.");
+            }
+        }
     };
 
     const addGradeSubject = () => {
@@ -421,7 +1418,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
                 setSearchResult({ answer: answerLines.join('\n'), sources });
             } else {
-                // 범용 검색: 모든 데이터 종합
+                // 범용 검색
                 const sources: { text: string; category: string }[] = [];
                 let answerLines: string[] = [`"${searchQuery}"에 대한 종합 검색 결과입니다.\n`];
                 answerLines.push(`📋 ${student.name} 학생 종합 현황:\n`);
@@ -429,7 +1426,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 answerLines.push(`• 목표: ${student.targetUniv} ${student.targetMajor}`);
                 answerLines.push(`• 메모: ${memos.length}건 / 파일: ${files.length}건 / 성적 기록: ${grades.length}건\n`);
 
-                // 키워드와 일치하는 메모 찾기
                 const keywords = q.split(/[\s,，.。]+/).filter(w => w.length >= 2);
                 const matchedMemos = memos.filter(m =>
                     keywords.some(k => m.content.includes(k) || m.tags.some(t => t.includes(k)))
@@ -438,12 +1434,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 if (matchedMemos.length > 0) {
                     answerLines.push('📝 관련 메모:');
                     matchedMemos.forEach((m, i) => {
-                        answerLines.push(`${i + 1}. [${m.category}] ${m.content}`);
-                        sources.push({ text: m.content.slice(0, 50) + '...', category: m.category });
-                    });
-                } else {
-                    answerLines.push('📝 최근 메모:');
-                    memos.slice(0, 2).forEach((m, i) => {
                         answerLines.push(`${i + 1}. [${m.category}] ${m.content}`);
                         sources.push({ text: m.content.slice(0, 50) + '...', category: m.category });
                     });
@@ -456,88 +1446,147 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         }, 1200);
     };
 
-    const handleSaveEdit = () => {
-        showToast(`✅ ${editForm.name} 학생 정보가 수정되었습니다.`);
-        setShowEditModal(false);
+    const handleSaveEdit = async () => {
+        try {
+            const updatedData = {
+                ...editForm,
+                classNumber: editForm.classNumber === '' ? undefined : Number(editForm.classNumber),
+                studentNumber: editForm.studentNumber === '' ? undefined : Number(editForm.studentNumber),
+                updatedAt: new Date().toISOString(),
+            };
+
+            if (isDemo) {
+                setStudent({ ...student!, ...updatedData });
+            } else {
+                await studentService.updateStudent(student!.id, updatedData);
+                setStudent({ ...student!, ...updatedData });
+            }
+
+            showToast(`✅ ${editForm.name} 학생 정보가 수정되었습니다.`);
+            setShowEditModal(false);
+        } catch (error) {
+            console.error("Error updating student profile:", error);
+            showToast("학생 정보 수정 중 오류가 발생했습니다.");
+        }
     };
 
-    // ============ CHART DATA ============
+    const handleSaveBook = async () => {
+        if (!bookForm.title.trim()) {
+            showToast('⚠️ 도서 제목을 입력하세요.');
+            return;
+        }
 
-    const lineChartData = {
-        labels: ['1-1', '1-2', '2-1', '2-2'],
-        datasets: [
-            { label: '수학', data: [93, 95, 97, 98], borderColor: '#818cf8', backgroundColor: 'rgba(129, 140, 248, 0.1)', tension: 0.4, fill: true },
-            { label: '물리', data: [90, 94, 98, 99], borderColor: '#34d399', backgroundColor: 'rgba(52, 211, 153, 0.1)', tension: 0.4, fill: true },
-            { label: '국어', data: [88, 90, 92, 90], borderColor: '#fbbf24', backgroundColor: 'rgba(251, 191, 36, 0.1)', tension: 0.4, fill: true },
-            { label: '영어', data: [85, 87, 88, 91], borderColor: '#f87171', backgroundColor: 'rgba(248, 113, 113, 0.1)', tension: 0.4, fill: true },
-        ],
+        try {
+            const bookData: Omit<BookRecord, 'id' | 'createdAt'> = {
+                studentId: student!.id,
+                title: bookForm.title,
+                author: bookForm.author,
+                imageUrl: bookForm.imageUrl || 'https://via.placeholder.com/150',
+                subject: bookForm.subject,
+                studentGrade: bookForm.studentGrade,
+                memo: bookForm.memo,
+            };
+
+            if (isDemo) {
+                const demoBook: BookRecord = {
+                    ...bookData,
+                    id: `bk-${Date.now()}`,
+                    createdAt: new Date().toISOString(),
+                };
+                setBooks([demoBook, ...books]);
+            } else {
+                const newId = await studentService.addBook(bookData);
+                const fullBook: BookRecord = {
+                    ...bookData,
+                    id: newId,
+                    createdAt: new Date().toISOString(),
+                };
+                setBooks([fullBook, ...books]);
+            }
+
+            setShowBookForm(false);
+            setBookForm({ title: '', author: '', imageUrl: '', subject: '', studentGrade: student?.grade || 1, memo: '' });
+            showToast('📚 도서 기록이 저장되었습니다.');
+        } catch (error) {
+            console.error("Error adding book:", error);
+            showToast("도서 기록 저장 중 오류가 발생했습니다.");
+        }
     };
 
-    const lineChartOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { labels: { color: '#94a3b8', font: { family: 'Inter' } } },
-            title: { display: true, text: '내신 성적 추이', color: '#f1f5f9', font: { size: 14, family: 'Inter' } },
-        },
-        scales: {
-            x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(30, 41, 59, 0.5)' } },
-            y: { min: chartMinY, max: chartMaxY, ticks: { color: '#64748b' }, grid: { color: 'rgba(30, 41, 59, 0.5)' } },
-        },
-    };
-
-    const radarData = {
-        labels: ['학업역량', '진로역량', '자기주도성', '발전가능성', '공동체의식'],
-        datasets: [{
-            label: '역량 점수',
-            data: [demoCompetency.학업역량, demoCompetency.진로역량, demoCompetency.자기주도성, demoCompetency.발전가능성, demoCompetency.공동체의식],
-            backgroundColor: 'rgba(99, 102, 241, 0.2)',
-            borderColor: '#6366f1',
-            borderWidth: 2,
-            pointBackgroundColor: '#6366f1',
-            pointBorderColor: '#fff',
-            pointBorderWidth: 2,
-            pointRadius: 5,
-        }],
-    };
-
-    const radarOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-            r: {
-                min: 0, max: 10,
-                ticks: { color: '#64748b', backdropColor: 'transparent', stepSize: 2 },
-                grid: { color: 'rgba(30, 41, 59, 0.5)' },
-                pointLabels: { color: '#94a3b8', font: { size: 12, family: 'Inter' } },
-                angleLines: { color: 'rgba(30, 41, 59, 0.5)' },
-            },
-        },
-        plugins: { legend: { display: false } },
+    const handleDeleteBook = async (bookId: string) => {
+        if (userRole === 'manager') {
+            showToast('❌ 삭제 권한이 없습니다.');
+            return;
+        }
+        if (confirm('도서 기록을 삭제하시겠습니까?')) {
+            try {
+                if (!isDemo) {
+                    await studentService.deleteBook(bookId);
+                }
+                setBooks(books.filter(b => b.id !== bookId));
+                showToast('🗑️ 도서 기록이 삭제되었습니다.');
+            } catch (error) {
+                console.error("Error deleting book:", error);
+                showToast("도서 삭제 중 오류가 발생했습니다.");
+            }
+        }
     };
 
     // ============ RENDER ============
 
     return (
-        <div>
+        <div style={{ paddingBottom: 'var(--space-2xl)' }}>
+            <div style={{ marginBottom: 'var(--space-md)' }}>
+                <Link 
+                    href="/dashboard/students" 
+                    style={{ 
+                        display: 'inline-flex', 
+                        alignItems: 'center', 
+                        gap: 'var(--space-xs)', 
+                        color: 'var(--text-muted)', 
+                        textDecoration: 'none',
+                        fontSize: '0.9rem',
+                        padding: '4px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                >
+                    <ArrowLeft size={16} />
+                    학생 목록으로 돌아가기
+                </Link>
+            </div>
             {/* Student Profile Header */}
             <div className="card-glass" style={{ marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', gap: 'var(--space-lg)', padding: 'var(--space-xl)', flexWrap: 'wrap' }}>
                 <div className="avatar avatar-lg" style={{ background: 'linear-gradient(135deg, var(--primary-500), var(--accent-500))', color: 'white', fontWeight: 700, fontSize: '1.5rem', width: 72, height: 72 }}>
-                    {student.name.charAt(0)}
+                    {student.name.slice(1) || student.name}
                 </div>
                 <div style={{ flex: 1, minWidth: 200 }}>
                     <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>{student.name}</h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '2px' }}>
-                        {student.school} · {student.grade}학년
+                        {student.school} · {student.grade}학년{student.classNumber ? ` ${student.classNumber}반` : ''}{student.studentNumber ? ` ${student.studentNumber}번` : ''}
                     </p>
-                    <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)', flexWrap: 'wrap' }}>
-                        <span className="tag tag-blue">🎯 {student.targetUniv}</span>
-                        <span className="tag tag-green">📚 {student.targetMajor}</span>
+                    <div style={{ marginTop: 'var(--space-sm)' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>학생 메모</div>
+                        <div style={{ 
+                            fontSize: '0.9rem', 
+                            color: student.studentMemo ? 'var(--text-secondary)' : 'rgba(255,255,255,0.2)',
+                            lineHeight: 1.5,
+                            maxWidth: '600px'
+                        }}>
+                            {student.studentMemo || '기록된 학생 메모가 없습니다.'}
+                        </div>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-                    <button className="btn btn-primary btn-sm" onClick={() => showToast('📋 보고서 생성 기능은 보고서 페이지에서 이용 가능합니다.')}>📋 보고서 생성</button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setShowEditModal(true)}>✏️ 수정</button>
+                <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => showToast('보고서 생성 기능은 보고서 페이지에서 이용 가능합니다.')}>보고서 생성</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => {
+                        const url = `${window.location.origin}/parent/${student.parentPortalToken || 'demo-token'}`;
+                        navigator.clipboard.writeText(url).then(() => { setPortalCopied(true); setTimeout(() => setPortalCopied(false), 2000); });
+                        showToast('학부모 공유 링크가 클립보드에 복사되었습니다.');
+                    }}>{portalCopied ? '복사됨' : '학부모 링크'}</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setShowEditModal(true)}>수정</button>
                 </div>
             </div>
 
@@ -549,44 +1598,190 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                         className={`tab ${activeTab === tab.key ? 'active' : ''}`}
                         onClick={() => setActiveTab(tab.key)}
                     >
-                        {tab.icon} {tab.label}
+                        {tab.label}
                     </button>
                 ))}
             </div>
 
             {/* ===== OVERVIEW TAB ===== */}
             {activeTab === 'overview' && (
-                <div className="grid-2" style={{ gap: 'var(--space-lg)' }}>
-                    <div className="card">
-                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>요약 정보</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
-                            <div><div className="text-sm text-muted">메모</div><div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{memos.length}건</div></div>
-                            <div><div className="text-sm text-muted">파일</div><div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{files.length}건</div></div>
-                            <div><div className="text-sm text-muted">성적 기록</div><div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{grades.length}건</div></div>
-                            <div><div className="text-sm text-muted">보고서</div><div style={{ fontSize: '1.5rem', fontWeight: 700 }}>1건</div></div>
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>역량 분석 요약</h3>
-                        <div style={{ height: 220 }}>
-                            <Radar data={radarData} options={radarOptions} />
-                        </div>
-                    </div>
-
-                    <div className="card" style={{ gridColumn: '1 / -1' }}>
-                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>최근 메모</h3>
-                        {memos.slice(0, 3).map((memo) => (
-                            <div key={memo.id} style={{ padding: 'var(--space-md)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-sm)', borderLeft: '3px solid var(--primary-500)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                    <span className="tag tag-green" style={{ fontSize: '0.7rem' }}>{memo.category}</span>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(memo.createdAt).toLocaleDateString('ko-KR')}</span>
+                <div className="grid-2" style={{ gap: 'var(--space-lg)', minWidth: 0 }}>
+                    <div className="card" style={{ minWidth: 0 }}>
+                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>최근 업데이트</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
+                            {recentActivities.map((act) => (
+                                <div 
+                                    key={`${act.type}-${act.id}`} 
+                                    className="activity-item-clickable"
+                                    onClick={() => {
+                                        const tabMap: Record<string, Tab> = { '성적': 'grades', '파일': 'files', '도서': 'books', '메모': 'memos' };
+                                        setActiveTab(tabMap[act.type] || 'overview');
+                                    }}
+                                    style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        gap: '12px', 
+                                        fontSize: '0.85rem', 
+                                        padding: '10px 8px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s',
+                                        position: 'relative',
+                                        minWidth: 0,
+                                        overflow: 'hidden'
+                                    }}
+                                >
+                                    <span style={{ 
+                                        padding: '2px 8px', 
+                                        borderRadius: '4px', 
+                                        fontSize: '0.7rem', 
+                                        background: act.type === '성적' ? 'rgba(59, 130, 246, 0.1)' : 
+                                                    act.type === '파일' ? 'rgba(16, 185, 129, 0.1)' :
+                                                    act.type === '도서' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                                        color: act.type === '성적' ? '#60a5fa' : 
+                                               act.type === '파일' ? '#34d399' :
+                                               act.type === '도서' ? '#a78bfa' : '#fbbf24',
+                                        width: '45px',
+                                        textAlign: 'center'
+                                    }}>
+                                        {act.type}
+                                    </span>
+                                    <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-secondary)' }}>
+                                        {act.content}
+                                        {act.semester && <span style={{ fontSize: '0.7rem', opacity: 0.5, marginLeft: '6px' }}>({act.semester})</span>}
+                                    </span>
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                                        {new Date(act.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+                                    </span>
                                 </div>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{memo.content}</p>
-                            </div>
-                        ))}
-                        {memos.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>아직 작성된 메모가 없습니다.</p>}
+                            ))}
+                            {recentActivities.length === 0 && (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: 'var(--space-md)' }}>
+                                    최근 활동 기록이 없습니다.
+                                </p>
+                            )}
+                            {allActivities.length > 5 && (
+                                <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('log')} style={{ alignSelf: 'center', marginTop: 'var(--space-sm)' }}>더보기</button>
+                            )}
+                        </div>
                     </div>
+
+                    <div className="card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+                            <h3 className="card-title" style={{ marginBottom: 0 }}>성적 추이</h3>
+                            <button className="btn btn-ghost btn-xs" onClick={() => setActiveTab('grades')} style={{ fontSize: '0.75rem', padding: '4px 8px', border: '1px solid var(--border-color)' }}>
+                                그래프 설정
+                            </button>
+                        </div>
+                        <div style={{ height: 220 }}>
+                            <Line data={lineChartData} options={{...lineChartOptions, maintainAspectRatio: false}} />
+                        </div>
+                    </div>
+
+                    {/* Teacher Memo */}
+                    <div className="card" style={{ cursor: isEditingTeacherMemo ? 'default' : 'pointer' }} onClick={() => { if (!isEditingTeacherMemo) { setIsEditingTeacherMemo(true); setTeacherMemoValue(student.teacherMemo || ''); } }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+                            <h3 className="card-title" style={{ marginBottom: 0 }}>담임교사 메모</h3>
+                            {!isEditingTeacherMemo && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>클릭하여 수정</span>}
+                        </div>
+                        
+                        {isEditingTeacherMemo ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                                <textarea 
+                                    className="form-textarea" 
+                                    value={teacherMemoValue} 
+                                    onChange={(e) => setTeacherMemoValue(e.target.value)}
+                                    autoFocus
+                                    style={{ minHeight: '120px', fontSize: '0.9rem' }}
+                                />
+                                <div style={{ display: 'flex', gap: 'var(--space-sm)', justifyContent: 'flex-end' }}>
+                                    <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setIsEditingTeacherMemo(false); }}>취소</button>
+                                    <button className="btn btn-primary btn-sm" onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                            await studentService.updateStudent(student.id, { teacherMemo: teacherMemoValue });
+                                            setStudent({ ...student, teacherMemo: teacherMemoValue });
+                                            setIsEditingTeacherMemo(false);
+                                            showToast('✅ 메모가 업데이트되었습니다.');
+                                        } catch (err) {
+                                            showToast('❌ 업데이트 실패');
+                                        }
+                                    }}>저장</button>
+                                </div>
+                            </div>
+                        ) : (
+                            student.teacherMemo ? (
+                                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.7, padding: 'var(--space-md)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', borderLeft: '3px solid var(--accent-500)', wordBreak: 'break-all', overflowWrap: 'break-word' }}>
+                                    {student.teacherMemo}
+                                </p>
+                            ) : (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: 'var(--space-md)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                                    담임교사 메모가 없습니다. 클릭해서 내용을 작성하세요.
+                                </p>
+                            )
+                        )}
+                    </div>
+
+                    {/* Timetable */}
+                    <div className="card" style={{ gridColumn: '1 / -1' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+                            <h3 className="card-title" style={{ marginBottom: 0 }}>📅 주간 시간표</h3>
+                            <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+                                <button className="btn btn-secondary btn-sm" onClick={() => handleScanImage('timetable')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Brain size={14} /> AI 사진 인식
+                                </button>
+                                <button className="btn btn-primary btn-sm" onClick={async () => {
+                                    try {
+                                        await studentService.updateStudent(student.id, { timetableData });
+                                        showToast('✅ 시간표가 저장되었습니다.');
+                                    } catch (err) {
+                                        showToast('❌ 저장 실패');
+                                    }
+                                }}>저장</button>
+                            </div>
+                        </div>
+                        
+                        <div className="table-wrapper" style={{ overflowX: 'auto' }}>
+                            <table className="table" style={{ borderCollapse: 'separate', borderSpacing: '4px', minWidth: '600px' }}>
+                                <thead>
+                                    <tr>
+                                        <th style={{ background: 'transparent', width: '60px' }}></th>
+                                        {['월', '화', '수', '목', '금'].map(day => (
+                                            <th key={day} style={{ textAlign: 'center', padding: '10px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}>{day}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[1, 2, 3, 4, 5, 6, 7].map(period => (
+                                        <tr key={period}>
+                                            <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>{period}</td>
+                                            {['월', '화', '수', '목', '금'].map(day => (
+                                                <td key={`${day}-${period}`} style={{ padding: 0 }}>
+                                                    <input 
+                                                        className="form-input" 
+                                                        value={timetableData[day]?.[period - 1] || ''} 
+                                                        onChange={(e) => {
+                                                            const newData = { ...timetableData };
+                                                            if (!newData[day]) newData[day] = ['', '', '', '', '', '', ''];
+                                                            newData[day][period - 1] = e.target.value;
+                                                            setTimetableData(newData);
+                                                        }}
+                                                        placeholder="-"
+                                                        style={{ textAlign: 'center', border: 'none', background: 'rgba(255,255,255,0.02)', borderRadius: '4px' }}
+                                                    />
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>
+                            * 사진 인식 후 정확하지 않은 부분은 직접 클릭해서 수정하세요.
+                        </p>
+                    </div>
+
                 </div>
             )}
 
@@ -618,7 +1813,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             </div>
                         </div>
                         <button className="btn btn-primary" style={{ marginTop: 'var(--space-md)' }} onClick={handleAddMemo}>
-                            ✏️ 메모 저장
+                            메모 저장
                         </button>
                     </div>
 
@@ -631,12 +1826,40 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                                             {new Date(memo.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                         </span>
-                                        <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteMemo(memo.id)} style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>🗑️</button>
+                                        <div style={{ display: 'flex', gap: 4 }}>
+                                            <button className="btn btn-ghost btn-sm" onClick={() => { setEditingMemoId(memo.id); setEditMemoContent(memo.content); }} style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }} title="메모 수정"><Pencil size={14} /></button>
+                                            <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteMemo(memo.id)} style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }} title="메모 삭제">🗑️</button>
+                                        </div>
                                     </div>
                                 </div>
-                                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                                    {memo.content}
-                                </p>
+                                {editingMemoId === memo.id ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                                        <textarea
+                                            className="form-textarea"
+                                            value={editMemoContent}
+                                            onChange={(e) => setEditMemoContent(e.target.value)}
+                                            style={{ minHeight: '80px', fontSize: '0.9rem' }}
+                                            autoFocus
+                                        />
+                                        <div style={{ display: 'flex', gap: 'var(--space-sm)', justifyContent: 'flex-end' }}>
+                                            <button className="btn btn-ghost btn-sm" onClick={() => setEditingMemoId(null)}>취소</button>
+                                            <button className="btn btn-primary btn-sm" onClick={async () => {
+                                                try {
+                                                    await studentService.updateMemo(memo.id, { content: editMemoContent });
+                                                    setMemos(memos.map(m => m.id === memo.id ? { ...m, content: editMemoContent } : m));
+                                                    setEditingMemoId(null);
+                                                    showToast('✅ 메모가 수정되었습니다.');
+                                                } catch (err) {
+                                                    showToast('❌ 수정 실패');
+                                                }
+                                            }}>저장</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6, wordBreak: 'break-all', overflowWrap: 'break-word' }}>
+                                        {memo.content}
+                                    </p>
+                                )}
                                 <div style={{ display: 'flex', gap: '6px', marginTop: 'var(--space-sm)' }}>
                                     {memo.tags.map((tag) => (
                                         <span key={tag} className="tag tag-gray" style={{ fontSize: '0.7rem' }}>#{tag}</span>
@@ -646,7 +1869,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                         ))}
                         {memos.length === 0 && (
                             <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}>
-                                <div style={{ fontSize: '2rem', marginBottom: 'var(--space-sm)' }}>📝</div>
+                                <FileText size={48} style={{ marginBottom: 'var(--space-md)', opacity: 0.3, margin: '0 auto' }} />
                                 <p style={{ color: 'var(--text-muted)' }}>아직 작성된 메모가 없습니다. 위에서 메모를 작성해보세요.</p>
                             </div>
                         )}
@@ -654,100 +1877,146 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 </div>
             )}
 
-            {/* ===== FILES TAB ===== */}
+            {/* ===== FILES TAB (MIND MAP) ===== */}
             {activeTab === 'files' && (
                 <div>
-                    <div
-                        className={`dropzone ${isDragging ? 'active' : ''}`}
-                        style={{ marginBottom: 'var(--space-lg)' }}
-                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                        onDragLeave={() => setIsDragging(false)}
-                        onDrop={handleDrop}
-                        onClick={() => fileInputRef.current?.click()}
-                    >
-                        <div className="dropzone-icon">📤</div>
-                        <p className="dropzone-text">
-                            파일을 드래그하거나 <strong>클릭</strong>하여 업로드
-                        </p>
-                        <p className="dropzone-hint">PDF, HWP 지원 · AI가 자동으로 내용을 분석합니다</p>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".pdf,.hwp,.doc,.docx,.txt"
-                            style={{ display: 'none' }}
-                            onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) simulateUpload(f.name);
-                                e.target.value = '';
-                            }}
-                        />
+                    {/* Controls */}
+                    <div style={{ display: 'flex', gap: 'var(--space-md)', marginBottom: 'var(--space-lg)', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <select className="form-select" value={selectedSemester} onChange={(e) => setSelectedSemester(e.target.value)} style={{ width: 140 }}>
+                            {[1, 2, 3].map(g => [1, 2].map(s => <option key={`${g}-${s}`} value={`${g}-${s}`}>{g}학년 {s}학기</option>)).flat()}
+                        </select>
+                        <div style={{ display: 'flex', gap: 'var(--space-xs)' }}>
+                            <button className={`btn btn-sm ${mindmapView === 'mindmap' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setMindmapView('mindmap')}>마인드맵</button>
+                            <button className={`btn btn-sm ${mindmapView === 'list' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setMindmapView('list')}>리스트</button>
+                        </div>
+                        <button className="btn btn-sm btn-secondary" onClick={() => fileInputRef.current?.click()}>파일 업로드</button>
+                        <input ref={fileInputRef} type="file" accept=".pdf,.hwp,.doc,.docx,.txt,.jpg,.png" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = ''; }} />
                     </div>
 
                     {uploadedFile && (
-                        <div className="card" style={{ marginBottom: 'var(--space-lg)', borderLeft: uploadedFile.parsing ? '3px solid var(--warning-400)' : '3px solid var(--accent-400)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-                                {uploadedFile.parsing ? (
-                                    <>
-                                        <span className="spinner" />
-                                        <span style={{ fontSize: '0.9rem' }}>AI가 {uploadedFile.name}을(를) 분석 중...</span>
-                                    </>
-                                ) : (
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '4px' }}>✅ {uploadedFile.name} 분석 완료</div>
-                                        <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', marginBottom: 'var(--space-xs)' }}>
-                                            <span className="tag tag-blue">{uploadedFile.result?.category}</span>
-                                            {uploadedFile.result?.tags.map((t) => (
-                                                <span key={t} className="tag tag-gray">#{t}</span>
-                                            ))}
+                        <div className="card" style={{ 
+                            marginBottom: 'var(--space-lg)', 
+                            borderLeft: uploadedFile.parsing ? '4px solid var(--warning-400)' : '4px solid var(--accent-400)',
+                            background: uploadedFile.parsing ? 'rgba(245, 158, 11, 0.05)' : 'rgba(99, 102, 241, 0.05)',
+                            padding: 'var(--space-md) var(--space-lg)',
+                            animation: 'slideDown 0.3s ease-out'
+                        }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+                                    {uploadedFile.parsing ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <span className="spinner" style={{ width: 20, height: 20 }} />
+                                            <span style={{ fontWeight: 600, color: 'var(--warning-500)' }}>AI가 {uploadedFile.name} 내용을 정독하는 중...</span>
                                         </div>
-                                        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{uploadedFile.result?.summary}</p>
-                                    </div>
-                                )}
+                                    ) : (
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>분석 완료</div>
+                                                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{uploadedFile.name}</div>
+                                                </div>
+                                                <button className="btn btn-ghost btn-xs" onClick={() => setUploadedFile(null)}>닫기</button>
+                                            </div>
+                                            
+                                            {uploadedFile.result?.summary && (
+                                                <div style={{ 
+                                                    background: 'rgba(255,255,255,0.3)', 
+                                                    padding: '12px', 
+                                                    borderRadius: 'var(--radius-sm)', 
+                                                    fontSize: '0.88rem', 
+                                                    lineHeight: 1.6, 
+                                                    color: 'var(--text-secondary)',
+                                                    marginBottom: '12px',
+                                                    border: '1px solid rgba(99, 102, 241, 0.1)',
+                                                    whiteSpace: 'pre-wrap'
+                                                }}>
+                                                    <div style={{ fontWeight: 600, color: 'var(--primary-400)', fontSize: '0.75rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <Brain size={14} /> AI 내용 요약
+                                                    </div>
+                                                    {uploadedFile.result.summary}
+                                                </div>
+                                            )}
+
+                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                                <span className="tag tag-blue" style={{ padding: '4px 10px', fontWeight: 600 }}>{uploadedFile.result?.category}</span>
+                                                {uploadedFile.result?.tags.map((t) => (
+                                                    <span key={t} className="tag tag-gray" style={{ fontSize: '0.75rem' }}>#{t}</span>
+                                                ))}
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                                                    * 이제 대시보드 검색에서 위 키워드로 검색이 가능합니다.
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
 
-                    <div className="table-wrapper">
-                        <table className="table">
-                            <thead>
-                                <tr>
-                                    <th>파일명</th>
-                                    <th>카테고리</th>
-                                    <th>태그</th>
-                                    <th>업로드일</th>
-                                    <th>작업</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {files.map((file) => (
-                                    <tr key={file.id}>
-                                        <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
-                                                <span>📄</span>
-                                                <span style={{ fontWeight: 500 }}>{file.fileName}</span>
-                                            </div>
-                                        </td>
-                                        <td><span className="tag tag-blue">{file.category}</span></td>
-                                        <td>
-                                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                                {file.tags.map((t) => <span key={t} className="tag tag-gray" style={{ fontSize: '0.68rem' }}>#{t}</span>)}
-                                            </div>
-                                        </td>
-                                        <td style={{ fontSize: '0.82rem' }}>{new Date(file.uploadedAt).toLocaleDateString('ko-KR')}</td>
-                                        <td>
-                                            <div style={{ display: 'flex', gap: '4px' }}>
-                                                <button className="btn btn-ghost btn-sm" onClick={() => showToast('⬇️ 파일 다운로드 (GCS 연동 후 활성화)')}>⬇️</button>
-                                                <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteFile(file.id, file.fileName)} style={{ color: 'var(--danger-400)' }}>🗑️</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    {files.length === 0 && (
-                        <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)', marginTop: 'var(--space-md)' }}>
-                            <p style={{ color: 'var(--text-muted)' }}>업로드된 파일이 없습니다. 위의 영역에 파일을 드래그하거나 클릭하여 업로드하세요.</p>
+                    {/* Mind Map View */}
+                    {mindmapView === 'mindmap' && (
+                        <div className="card mindmap-container">
+                            <div className="tree">
+                                <ul style={{ marginLeft: 0, paddingLeft: 0 }}>
+                                    {FILE_CATEGORIES.map((cat) => {
+                                        const catColors: Record<string, string> = { '교과활동': '#6366f1', '자율활동': '#10b981', '진로활동': '#f59e0b', '동아리': '#8b5cf6', '행특': '#ec4899', '수업량유연화': '#14b8a6', '수상경력': '#f97316', '봉사활동': '#06b6d4', '도서': '#a855f7' };
+                                        const isExpanded = expandedNodes.has(cat);
+                                        return (
+                                            <li key={cat} style={{ marginBottom: '4px' }}>
+                                                <div className={`tree-node-content ${dragOverId === cat ? 'drag-over' : ''}`}
+                                                    onClick={(e) => { e.stopPropagation(); const next = new Set(expandedNodes); if (next.has(cat)) next.delete(cat); else next.add(cat); setExpandedNodes(next); }}
+                                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverId(cat); }}
+                                                    onDragLeave={() => setDragOverId(null)}
+                                                    onDrop={(e) => { 
+                                                        e.preventDefault(); 
+                                                        e.stopPropagation(); 
+                                                        setDragOverId(null); 
+                                                        if (draggingFileId) {
+                                                            handleMoveFile(draggingFileId, cat, null);
+                                                            setDraggingFileId(null);
+                                                        } else if (draggingFolderId) {
+                                                            handleMoveFolder(draggingFolderId, null, cat);
+                                                            setDraggingFolderId(null);
+                                                        } else {
+                                                            const file = e.dataTransfer.files[0]; 
+                                                            if (file) { handleFileUpload(file, cat, null); showToast(`📁 ${cat} 카테고리에 업로드됨`); } 
+                                                        }
+                                                    }}
+                                                    style={{ borderLeftColor: catColors[cat], borderLeftWidth: '4px' }}
+                                                >
+                                                    <span style={{ color: catColors[cat] || 'var(--text-primary)', fontWeight: 700, minWidth: '80px', textAlign: 'left' }}>{cat}</span>
+                                                </div>
+                                                {isExpanded && renderFolder(cat, null)}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* List View */}
+                    {mindmapView === 'list' && (
+                        <div className="table-wrapper">
+                            <table className="table">
+                                <thead><tr><th>파일명</th><th>카테고리</th><th>태그</th><th>업로드일</th><th>작업</th></tr></thead>
+                                <tbody>
+                                    {files.map((file) => (
+                                        <tr key={file.id}>
+                                            <td><div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}><File size={16} /><span style={{ fontWeight: 500 }}>{file.fileName}</span></div></td>
+                                            <td><span className="tag tag-blue">{file.category}</span></td>
+                                            <td><div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>{file.tags.map((t) => <span key={t} className="tag tag-gray" style={{ fontSize: '0.68rem' }}>#{t}</span>)}</div></td>
+                                            <td style={{ fontSize: '0.82rem' }}>{new Date(file.uploadedAt).toLocaleDateString('ko-KR')}</td>
+                                            <td>
+                                                {userRole !== 'manager' && (
+                                                    <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteFile(file.id, file.fileName)} style={{ color: 'var(--danger-400)' }}><Trash2 size={16} /></button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {files.length === 0 && <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)', marginTop: 'var(--space-md)' }}><p style={{ color: 'var(--text-muted)' }}>업로드된 파일이 없습니다.</p></div>}
                         </div>
                     )}
                 </div>
@@ -778,14 +2047,19 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
                         <h3 style={{ fontWeight: 700 }}>성적 기록</h3>
                         <button className="btn btn-primary" onClick={() => setShowGradeForm(!showGradeForm)}>
-                            {showGradeForm ? '✕ 닫기' : '➕ 성적 입력'}
+                            {showGradeForm ? '닫기' : '성적 입력'}
                         </button>
                     </div>
 
                     {showGradeForm && (
-                        <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
-                            <h4 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>성적 입력</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: gradeForm.examType === '내신' ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
+                        <div className="card" style={{ marginBottom: 'var(--space-lg)', borderTop: '4px solid var(--primary-500)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+                                <h4 className="card-title" style={{ marginBottom: 0 }}>성적 입력</h4>
+                                <button className="btn btn-secondary btn-sm" onClick={() => handleScanImage('grade')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Brain size={16} /> 성적표 사진 스캔
+                                </button>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
                                 <div className="form-group">
                                     <label className="form-label">시험 유형</label>
                                     <select className="form-select" value={gradeForm.examType} onChange={(e) => setGradeForm({ ...gradeForm, examType: e.target.value as '내신' | '모의고사' })}>
@@ -794,8 +2068,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                     </select>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">년도</label>
-                                    <input type="number" className="form-input" value={gradeForm.year} onChange={(e) => setGradeForm({ ...gradeForm, year: Number(e.target.value) })} />
+                                    <label className="form-label">학년</label>
+                                    <select className="form-select" value={gradeForm.studentGrade} onChange={(e) => setGradeForm({ ...gradeForm, studentGrade: Number(e.target.value) })}>
+                                        <option value={1}>1학년</option>
+                                        <option value={2}>2학년</option>
+                                        <option value={3}>3학년</option>
+                                    </select>
                                 </div>
                                 {gradeForm.examType === '내신' ? (
                                     <>
@@ -815,39 +2093,116 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         </div>
                                     </>
                                 ) : (
-                                    <div className="form-group">
-                                        <label className="form-label">시행월</label>
-                                        <select className="form-select" value={gradeForm.month} onChange={(e) => setGradeForm({ ...gradeForm, month: Number(e.target.value) })}>
-                                            <option value={3}>3월</option>
-                                            <option value={6}>6월</option>
-                                            <option value={9}>9월</option>
-                                            <option value={11}>11월</option>
-                                        </select>
-                                    </div>
+                                    <>
+                                        <div className="form-group">
+                                            <label className="form-label">시행 월</label>
+                                            <select className="form-select" value={gradeForm.month} onChange={(e) => setGradeForm({ ...gradeForm, month: Number(e.target.value) })}>
+                                                {[3,4,6,7,9,10,11].map(m => (
+                                                    <option key={m} value={m}>{m}월</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">시행 년도</label>
+                                            <input type="number" className="form-input" value={gradeForm.year} onChange={(e) => setGradeForm({ ...gradeForm, year: Number(e.target.value) })} />
+                                        </div>
+                                    </>
                                 )}
                             </div>
 
                             <div style={{ marginBottom: 'var(--space-md)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-sm)' }}>
-                                    <label className="form-label">과목별 성적</label>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-sm)', alignItems: 'center' }}>
+                                    <label className="form-label" style={{ marginBottom: 0 }}>과목별 성적</label>
                                     <button className="btn btn-ghost btn-sm" onClick={addGradeSubject}>+ 과목 추가</button>
                                 </div>
-                                {gradeForm.subjects.map((sub, idx) => (
-                                    <div key={idx} style={{ display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-xs)', alignItems: 'center' }}>
-                                        <input className="form-input" placeholder="과목명" value={sub.name} style={{ flex: 2 }} onChange={(e) => {
-                                            const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], name: e.target.value }; setGradeForm({ ...gradeForm, subjects: s });
-                                        }} />
-                                        <input type="number" className="form-input" placeholder="점수" value={sub.score ?? ''} style={{ flex: 1 }} onChange={(e) => {
-                                            const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], score: e.target.value ? Number(e.target.value) : undefined }; setGradeForm({ ...gradeForm, subjects: s });
-                                        }} />
-                                        <input type="number" className="form-input" placeholder="등급 (1-9)" value={sub.grade ?? ''} style={{ flex: 1 }} onChange={(e) => {
-                                            const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], grade: e.target.value ? Number(e.target.value) : undefined }; setGradeForm({ ...gradeForm, subjects: s });
-                                        }} />
-                                        <button className="btn btn-ghost btn-sm" onClick={() => removeGradeSubject(idx)} style={{ color: 'var(--danger-400)', flexShrink: 0 }}>✕</button>
-                                    </div>
-                                ))}
+                                <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+                                    <table className="table" style={{ minWidth: '800px', margin: 0 }}>
+                                        <thead>
+                                            <tr style={{ background: 'var(--bg-secondary)' }}>
+                                                <th style={{ width: '180px' }}>과목명</th>
+                                                <th style={{ width: '80px' }}>원점수</th>
+                                                <th style={{ width: '70px' }}>등급</th>
+                                                {gradeForm.examType === '내신' ? (
+                                                    <>
+                                                        <th style={{ width: '110px' }}>석차(동석차)</th>
+                                                        <th style={{ width: '90px' }}>수강자수</th>
+                                                        <th style={{ width: '90px' }}>과목평균</th>
+                                                        <th style={{ width: '90px' }}>표준편차</th>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <th style={{ width: '100px' }}>표준점수</th>
+                                                        <th style={{ width: '100px' }}>백분위</th>
+                                                    </>
+                                                )}
+                                                <th style={{ width: '50px' }}>삭제</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {gradeForm.subjects.map((sub, idx) => (
+                                                <tr key={idx}>
+                                                    <td style={{ padding: '8px' }}>
+                                                        <input className="form-input" placeholder="국어 I" value={sub.name} onChange={(e) => {
+                                                            const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], name: e.target.value }; setGradeForm({ ...gradeForm, subjects: s });
+                                                        }} />
+                                                    </td>
+                                                    <td style={{ padding: '8px' }}>
+                                                        <input type="number" className="form-input" placeholder="0" value={sub.score ?? ''} style={{ textAlign: 'center' }} onChange={(e) => {
+                                                            const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], score: e.target.value ? Number(e.target.value) : null }; setGradeForm({ ...gradeForm, subjects: s });
+                                                        }} />
+                                                    </td>
+                                                    <td style={{ padding: '8px' }}>
+                                                        <input type="number" className="form-input" placeholder="0" value={sub.grade ?? ''} style={{ textAlign: 'center' }} onChange={(e) => {
+                                                            const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], grade: e.target.value ? Number(e.target.value) : null }; setGradeForm({ ...gradeForm, subjects: s });
+                                                        }} />
+                                                    </td>
+                                                    {gradeForm.examType === '내신' ? (
+                                                        <>
+                                                            <td style={{ padding: '8px' }}>
+                                                                <input className="form-input" placeholder="8(2)" value={sub.rank ?? ''} style={{ textAlign: 'center' }} onChange={(e) => {
+                                                                    const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], rank: e.target.value }; setGradeForm({ ...gradeForm, subjects: s });
+                                                                }} />
+                                                            </td>
+                                                            <td style={{ padding: '8px' }}>
+                                                                <input type="number" className="form-input" placeholder="332" value={sub.studentCount ?? ''} style={{ textAlign: 'center' }} onChange={(e) => {
+                                                                    const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], studentCount: e.target.value ? Number(e.target.value) : null }; setGradeForm({ ...gradeForm, subjects: s });
+                                                                }} />
+                                                            </td>
+                                                            <td style={{ padding: '8px' }}>
+                                                                <input type="number" step="0.1" className="form-input" placeholder="71.3" value={sub.average ?? ''} style={{ textAlign: 'center' }} onChange={(e) => {
+                                                                    const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], average: e.target.value ? Number(e.target.value) : null }; setGradeForm({ ...gradeForm, subjects: s });
+                                                                }} />
+                                                            </td>
+                                                            <td style={{ padding: '8px' }}>
+                                                                <input type="number" step="0.1" className="form-input" placeholder="18.6" value={sub.stdDev ?? ''} style={{ textAlign: 'center' }} onChange={(e) => {
+                                                                    const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], stdDev: e.target.value ? Number(e.target.value) : null }; setGradeForm({ ...gradeForm, subjects: s });
+                                                                }} />
+                                                            </td>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <td style={{ padding: '8px' }}>
+                                                                <input type="number" className="form-input" value={sub.standardScore ?? ''} onChange={(e) => {
+                                                                    const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], standardScore: e.target.value ? Number(e.target.value) : null }; setGradeForm({ ...gradeForm, subjects: s });
+                                                                }} />
+                                                            </td>
+                                                            <td style={{ padding: '8px' }}>
+                                                                <input type="number" className="form-input" value={sub.percentile ?? ''} onChange={(e) => {
+                                                                    const s = [...gradeForm.subjects]; s[idx] = { ...s[idx], percentile: e.target.value ? Number(e.target.value) : null }; setGradeForm({ ...gradeForm, subjects: s });
+                                                                }} />
+                                                            </td>
+                                                        </>
+                                                    )}
+                                                    <td style={{ padding: '8px', textAlign: 'center' }}>
+                                                        <button className="btn btn-ghost btn-sm" onClick={() => removeGradeSubject(idx)} style={{ color: 'var(--danger-400)' }}>✕</button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                            <button className="btn btn-primary" onClick={handleSaveGrade}>💾 성적 저장</button>
+                            <button className="btn btn-primary w-full" onClick={handleSaveGrade}>📊 성적 저장하기</button>
                         </div>
                     )}
 
@@ -857,22 +2212,61 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 <div style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' }}>
                                     <span className={`tag ${record.examType === '내신' ? 'tag-blue' : 'tag-yellow'}`}>{record.examType}</span>
                                     <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                                        {record.year}년 {record.examType === '내신' ? `${record.semester}학기 ${record.examPeriod || ''}` : `${record.month}월`}
+                                        {record.studentGrade || ''}학년 {record.examType === '내신' ? `${record.semester}학기 ${record.examPeriod || ''}` : `${record.month}월`}
                                     </span>
                                 </div>
-                                <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteGrade(record.id)} style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>🗑️</button>
-                            </div>
-                            <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
-                                {record.subjects.map((sub, idx) => (
-                                    <div key={idx} style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', padding: '8px 14px', minWidth: 100 }}>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sub.name}</div>
-                                        <div style={{ fontWeight: 700, fontSize: '1rem' }}>
-                                            {sub.score ? `${sub.score}점` : sub.standardScore ? `${sub.standardScore}` : ''}
-                                            {sub.grade !== undefined && <span style={{ fontSize: '0.8rem', color: 'var(--primary-400)', marginLeft: 4 }}>{sub.grade}등급</span>}
-                                        </div>
-                                        {sub.percentile && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>상위 {100 - sub.percentile}%</div>}
+                                {userRole !== 'manager' && (
+                                    <div style={{ display: 'flex', gap: 4 }}>
+                                        <button className="btn btn-ghost btn-sm" onClick={() => handleEditGrade(record)} style={{ color: 'var(--text-muted)' }} title="성적 수정"><Pencil size={16} /></button>
+                                        <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteGrade(record.id)} style={{ color: 'var(--danger-400)' }} title="성적 삭제"><Trash2 size={16} /></button>
                                     </div>
-                                ))}
+                                )}
+                            </div>
+                            <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)' }}>
+                                <table className="table" style={{ fontSize: '0.85rem', minWidth: '600px', margin: 0 }}>
+                                    <thead>
+                                        <tr style={{ background: 'rgba(0,0,0,0.02)' }}>
+                                            <th style={{ padding: '8px 12px' }}>과목명</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>원점수</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>등급</th>
+                                            {record.examType === '내신' ? (
+                                                <>
+                                                    <th style={{ padding: '8px 12px', textAlign: 'center' }}>석차(수강자)</th>
+                                                    <th style={{ padding: '8px 12px', textAlign: 'center' }}>평균(표차)</th>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <th style={{ padding: '8px 12px', textAlign: 'center' }}>표준점수</th>
+                                                    <th style={{ padding: '8px 12px', textAlign: 'center' }}>백분위</th>
+                                                </>
+                                            )}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {record.subjects.map((sub, idx) => (
+                                            <tr key={idx} style={{ background: 'var(--bg-card)' }}>
+                                                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>{sub.name}</td>
+                                                <td style={{ padding: '8px 12px', textAlign: 'center' }}>{sub.score ?? '-'}</td>
+                                                <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                                                    <span className={`badge ${sub.grade && sub.grade <= 2 ? 'badge-blue' : 'badge-gray'}`} style={{ padding: '2px 8px', borderRadius: '12px' }}>
+                                                        {sub.grade || '-'}등급
+                                                    </span>
+                                                </td>
+                                                {record.examType === '내신' ? (
+                                                    <>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>{sub.rank || '-'}{sub.studentCount ? ` / ${sub.studentCount}` : ''}</td>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>{sub.average || '-'}{sub.stdDev ? ` (${sub.stdDev})` : ''}</td>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>{sub.standardScore ?? '-'}</td>
+                                                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>{sub.percentile ? `${sub.percentile}%` : '-'}</td>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     ))}
@@ -884,18 +2278,137 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 </div>
             )}
 
+            {/* ===== BOOKS TAB ===== */}
+            {activeTab === 'books' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-lg)' }}>
+                        <div>
+                            <h3 style={{ fontWeight: 700 }}>독서 관리</h3>
+                            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>학년별 과목당 최소 1권의 도서를 권장합니다</p>
+                        </div>
+                        <button className="btn btn-primary btn-sm" onClick={() => setShowBookForm(!showBookForm)}>{showBookForm ? '닫기' : '도서 추가'}</button>
+                    </div>
+
+                    {showBookForm && (
+                        <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-sm)' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">제목 *</label><input className="form-input" placeholder="책 제목" value={bookForm.title} onChange={(e) => setBookForm({ ...bookForm, title: e.target.value })} /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">저자</label><input className="form-input" placeholder="저자명" value={bookForm.author} onChange={(e) => setBookForm({ ...bookForm, author: e.target.value })} /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">이미지 URL</label><input className="form-input" placeholder="https://..." value={bookForm.imageUrl} onChange={(e) => setBookForm({ ...bookForm, imageUrl: e.target.value })} /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">과목</label><input className="form-input" placeholder="관련 과목" value={bookForm.subject} onChange={(e) => setBookForm({ ...bookForm, subject: e.target.value })} /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">학년</label>
+                                    <select className="form-select" value={bookForm.studentGrade} onChange={(e) => setBookForm({ ...bookForm, studentGrade: Number(e.target.value) })}>
+                                        <option value={1}>1학년</option>
+                                        <option value={2}>2학년</option>
+                                        <option value={3}>3학년</option>
+                                    </select>
+                                </div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">메모</label><input className="form-input" placeholder="독서 메모" value={bookForm.memo} onChange={(e) => setBookForm({ ...bookForm, memo: e.target.value })} /></div>
+                            </div>
+                            {bookForm.imageUrl && <div style={{ marginTop: 'var(--space-sm)' }}><img src={bookForm.imageUrl} alt="미리보기" style={{ height: 80, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} /></div>}
+                            <button className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => {
+                                if (!bookForm.title.trim()) { showToast('제목을 입력하세요.'); return; }
+                                setBooks([{ id: `bk-${Date.now()}`, studentId: student!.id, ...bookForm, createdAt: new Date().toISOString() }, ...books]);
+                                setBookForm({ title: '', author: '', imageUrl: '', subject: '', studentGrade: student?.grade || 1, memo: '' });
+                                showToast('도서가 추가되었습니다.');
+                            }}>저장</button>
+                        </div>
+                    )}
+
+                    <div className="table-wrapper">
+                        <table className="table">
+                            <thead><tr><th style={{ width: 60 }}>표지</th><th>제목</th><th>저자</th><th>과목</th><th>학년</th><th>메모</th><th>작업</th></tr></thead>
+                            <tbody>
+                                {books.map((book) => (
+                                    <tr key={book.id}>
+                                        <td>{book.imageUrl ? <img src={book.imageUrl} alt="" style={{ width: 40, height: 56, objectFit: 'cover', borderRadius: 4 }} onError={(e) => { (e.target as HTMLImageElement).src = ''; (e.target as HTMLImageElement).alt = 'Book'; }} /> : <Book size={24} style={{ opacity: 0.5 }} />}</td>
+                                        <td style={{ fontWeight: 600 }}>{book.title}</td>
+                                        <td style={{ fontSize: '0.85rem' }}>{book.author || '-'}</td>
+                                        <td><span className="tag tag-blue" style={{ fontSize: '0.72rem' }}>{book.subject || '-'}</span></td>
+                                        <td style={{ fontSize: '0.82rem' }}>{book.studentGrade || '-'}학년</td>
+                                        <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.memo || '-'}</td>
+                                        <td>
+                                            {userRole !== 'manager' && (
+                                                <button className="btn btn-ghost btn-sm" onClick={() => { 
+                                                    if (confirm('도서 기록을 삭제하시겠습니까?')) {
+                                                        setBooks(books.filter(b => b.id !== book.id)); 
+                                                        showToast('도서가 삭제되었습니다.'); 
+                                                    }
+                                                }} style={{ color: 'var(--danger-400)' }}><Trash2 size={16} /></button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    {books.length === 0 && <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}><p style={{ color: 'var(--text-muted)' }}>등록된 도서가 없습니다.</p></div>}
+                </div>
+            )}
+
+            {/* ===== RESOURCES TAB ===== */}
+            {activeTab === 'resources' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-lg)' }}>
+                        <h3 style={{ fontWeight: 700 }}>교과 리소스</h3>
+                        <button className="btn btn-primary btn-sm" onClick={() => setShowResourceForm(!showResourceForm)}>{showResourceForm ? '닫기' : '과목 추가'}</button>
+                    </div>
+
+                    {showResourceForm && (
+                        <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-sm)' }}>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">과목명 *</label><input className="form-input" placeholder="예: 물리학Ⅱ" value={resourceForm.subjectName} onChange={(e) => setResourceForm({ ...resourceForm, subjectName: e.target.value })} /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">출판사</label><input className="form-input" placeholder="예: 비상교육" value={resourceForm.publisher} onChange={(e) => setResourceForm({ ...resourceForm, publisher: e.target.value })} /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">링크 이름</label><input className="form-input" placeholder="예: EBS 강의" value={resourceForm.linkLabel} onChange={(e) => setResourceForm({ ...resourceForm, linkLabel: e.target.value })} /></div>
+                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">링크 URL</label><input className="form-input" placeholder="https://..." value={resourceForm.linkUrl} onChange={(e) => setResourceForm({ ...resourceForm, linkUrl: e.target.value })} /></div>
+                            </div>
+                            <button className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => {
+                                if (!resourceForm.subjectName.trim()) { showToast('과목명을 입력하세요.'); return; }
+                                const links = resourceForm.linkLabel && resourceForm.linkUrl ? [{ label: resourceForm.linkLabel, url: resourceForm.linkUrl }] : [];
+                                setResources([...resources, { id: `res-${Date.now()}`, studentId: student.id, subjectName: resourceForm.subjectName, publisher: resourceForm.publisher, links, files: [] }]);
+                                setResourceForm({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '' });
+                                showToast('교과 리소스가 추가되었습니다.');
+                            }}>저장</button>
+                        </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-md)' }}>
+                        {resources.map((res) => (
+                            <div key={res.id} className="card" style={{ borderLeft: '3px solid var(--primary-500)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }}>
+                                    <h4 style={{ fontWeight: 700, fontSize: '1rem' }}>{res.subjectName}</h4>
+                                    {userRole !== 'manager' && (
+                                        <button className="btn btn-ghost btn-sm" onClick={() => { setResources(resources.filter(r => r.id !== res.id)); showToast('🗑️ 삭제되었습니다.'); }} style={{ color: 'var(--danger-400)', fontSize: '0.72rem' }}>✕</button>
+                                    )}
+                                </div>
+                                {res.publisher && <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>📖 출판사: {res.publisher}</div>}
+                                {res.links.length > 0 && (
+                                    <div style={{ marginBottom: 'var(--space-sm)' }}>
+                                        {res.links.map((link, i) => (
+                                            <a key={i} href={link.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontSize: '0.82rem', color: 'var(--primary-400)', marginBottom: '4px' }}><LinkIcon size={14} style={{ display: 'inline', marginRight: '4px' }} /> {link.label}</a>
+                                        ))}
+                                    </div>
+                                )}
+                                {res.links.length === 0 && res.files.length === 0 && <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>등록된 링크/파일이 없습니다.</p>}
+                            </div>
+                        ))}
+                    </div>
+                    {resources.length === 0 && <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}><p style={{ color: 'var(--text-muted)' }}>등록된 교과 리소스가 없습니다.</p></div>}
+                </div>
+            )}
+
             {/* ===== ANALYSIS TAB ===== */}
             {activeTab === 'analysis' && (
                 <div className="grid-2" style={{ gap: 'var(--space-lg)' }}>
                     <div className="card">
-                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>🎯 AI 역량 방사형 차트</h3>
+                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>AI 역량 방사형 차트</h3>
                         <div style={{ height: 320 }}>
                             <Radar data={radarData} options={radarOptions} />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--space-lg)', marginTop: 'var(--space-md)', flexWrap: 'wrap' }}>
-                            {Object.entries(demoCompetency).map(([key, val]) => (
+                            {['학업역량', '진로역량', '자기주도성', '발전가능성', '공동체의식'].map((key) => (
                                 <div key={key} style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--primary-400)' }}>{val}</div>
+                                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--primary-400)', opacity: 0.3 }}>-</div>
                                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{key}</div>
                                 </div>
                             ))}
@@ -905,15 +2418,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     <div className="card">
                         <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>📝 AI 분석 근거</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-                            {demoEvidences.map((ev, idx) => (
-                                <div key={idx} style={{ padding: 'var(--space-md)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', borderLeft: '3px solid var(--primary-500)' }}>
+                                <div style={{ padding: 'var(--space-md)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', borderLeft: '3px solid var(--primary-500)', opacity: 0.5 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                        <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--primary-400)' }}>{ev.competency}</span>
-                                        <span className="badge badge-blue">{ev.score}/10</span>
+                                        <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--primary-400)' }}>분석 대기 중</span>
                                     </div>
-                                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ev.evidence}</p>
+                                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>학생 역량 분석을 위해 더 많은 활동 기록(메모, 파일 등)이 필요합니다.</p>
                                 </div>
-                            ))}
                         </div>
                     </div>
                 </div>
@@ -923,7 +2433,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             {activeTab === 'search' && (
                 <div>
                     <div className="card-glass" style={{ marginBottom: 'var(--space-lg)' }}>
-                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>🔍 AI 자연어 검색 (RAG)</h3>
+                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>AI 자연어 검색</h3>
                         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 'var(--space-md)' }}>
                             자연어로 질문하면 학생의 모든 활동 기록에서 관련 내용을 검색하고 답변합니다.
                         </p>
@@ -958,13 +2468,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                     </div>
                                 ))}
                             </div>
-                            <button className="btn btn-ghost btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => setSearchResult(null)}>🔄 새 검색</button>
+                            <button className="btn btn-ghost btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => setSearchResult(null)}>새 검색</button>
                         </div>
                     )}
 
                     {!searchResult && (
                         <div className="card">
-                            <h4 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>💡 추천 질문</h4>
+                            <h4 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>추천 질문</h4>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
                                 {[
                                     '물리와 관련된 활동을 모두 찾아줘',
@@ -978,7 +2488,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         style={{ justifyContent: 'flex-start', textAlign: 'left' }}
                                         onClick={() => { setSearchQuery(q); }}
                                     >
-                                        🔹 {q}
+                                        • {q}
                                     </button>
                                 ))}
                             </div>
@@ -987,18 +2497,169 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 </div>
             )}
 
+            {/* ===== LOG TAB ===== */}
+            {activeTab === 'log' && (
+                <div>
+                    <div className="card-glass" style={{ marginBottom: 'var(--space-lg)' }}>
+                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>활동 로그</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                            {/* Filter Top: Range Presets */}
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                {[
+                                    { label: '최근 7일', days: 7 },
+                                    { label: '최근 1개월', days: 30 },
+                                    { label: '최근 3개월', days: 90 },
+                                    { label: '최근 6개월', days: 180 },
+                                    { label: '최근 1년', days: 365 }
+                                ].map((preset) => (
+                                    <button 
+                                        key={preset.label} 
+                                        className="btn btn-ghost btn-xs" 
+                                        onClick={() => {
+                                            const end = new Date();
+                                            const start = new Date();
+                                            start.setDate(start.getDate() - preset.days);
+                                            setLogEndDate(end.toISOString().split('T')[0]);
+                                            setLogStartDate(start.toISOString().split('T')[0]);
+                                        }}
+                                        style={{ border: '1px solid var(--border-color)', fontSize: '0.75rem', padding: '4px 10px' }}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Filter Bottom: Detailed Controls */}
+                            <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                <div className="form-group" style={{ flex: 1, minWidth: '200px', marginBottom: 0 }}>
+                                    <label className="form-label">키워드 검색</label>
+                                    <input 
+                                        className="form-input" 
+                                        placeholder="검색어를 입력하세요..." 
+                                        value={logSearchQuery}
+                                        onChange={(e) => setLogSearchQuery(e.target.value)}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ width: '120px', marginBottom: 0 }}>
+                                    <label className="form-label">카테고리</label>
+                                    <select 
+                                        className="form-select" 
+                                        value={logCategory} 
+                                        onChange={(e) => setLogCategory(e.target.value)}
+                                    >
+                                        <option value="전체">전체 보기</option>
+                                        <option value="메모">메모</option>
+                                        <option value="파일">파일</option>
+                                        <option value="성적">성적</option>
+                                        <option value="도서">도서</option>
+                                    </select>
+                                </div>
+                                <div className="form-group" style={{ width: '140px', marginBottom: 0 }}>
+                                    <label className="form-label">시작일</label>
+                                    <input 
+                                        type="date" 
+                                        className="form-input" 
+                                        value={logStartDate}
+                                        onChange={(e) => setLogStartDate(e.target.value)}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ width: '140px', marginBottom: 0 }}>
+                                    <label className="form-label">종료일</label>
+                                    <input 
+                                        type="date" 
+                                        className="form-input" 
+                                        value={logEndDate}
+                                        onChange={(e) => setLogEndDate(e.target.value)}
+                                    />
+                                </div>
+                                <button className="btn btn-secondary" onClick={() => {
+                                    setLogSearchQuery('');
+                                    setLogStartDate('');
+                                    setLogEndDate('');
+                                    setLogCategory('전체');
+                                }}>초기화</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {filteredActivities.map((act) => (
+                                <div 
+                                    key={`${act.type}-${act.id}`} 
+                                    className="activity-item-clickable"
+                                    onClick={() => {
+                                        const tabMap: Record<string, Tab> = { '성적': 'grades', '파일': 'files', '도서': 'books', '메모': 'memos' };
+                                        setActiveTab(tabMap[act.type] || 'overview');
+                                    }}
+                                    style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        gap: '16px', 
+                                        fontSize: '0.88rem', 
+                                        padding: '12px 12px', 
+                                        borderRadius: 'var(--radius-md)',
+                                        borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.2s'
+                                    }}
+                                >
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', width: '100px', flexShrink: 0 }}>
+                                        {new Date(act.date).toLocaleDateString('ko-KR', { year: '2-digit', month: '2-digit', day: '2-digit' })}
+                                    </span>
+                                    <span style={{ 
+                                        padding: '2px 8px', 
+                                        borderRadius: '4px', 
+                                        fontSize: '0.75rem', 
+                                        background: act.type === '성적' ? 'rgba(59, 130, 246, 0.1)' : 
+                                                    act.type === '파일' ? 'rgba(16, 185, 129, 0.1)' :
+                                                    act.type === '도서' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                                        color: act.type === '성적' ? '#60a5fa' : 
+                                               act.type === '파일' ? '#34d399' :
+                                               act.type === '도서' ? '#a78bfa' : '#fbbf24',
+                                        width: '60px',
+                                        textAlign: 'center',
+                                        flexShrink: 0
+                                    }}>
+                                        {act.type}
+                                    </span>
+                                    <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-primary)', fontWeight: 500 }}>
+                                        {act.content}
+                                    </span>
+                                </div>
+                            ))}
+                            {filteredActivities.length === 0 && (
+                                <div style={{ textAlign: 'center', padding: 'var(--space-3xl)', color: 'var(--text-muted)' }}>
+                                    검색 결과가 없습니다.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ===== EDIT MODAL ===== */}
             {showEditModal && (
-                <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-                    <div className="modal" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h3 style={{ fontWeight: 700 }}>학생 정보 수정</h3>
+                <div className="modal-overlay" onClick={() => setShowEditModal(false)} style={{ zIndex: 1000 }}>
+                    <div className="modal card-glass" onClick={(e) => e.stopPropagation()} style={{ 
+                        maxWidth: '550px', 
+                        padding: 'var(--space-xl)', 
+                        border: '1px solid var(--primary-600)',
+                        boxShadow: '0 0 50px rgba(99, 102, 241, 0.3)'
+                    }}>
+                        <div className="modal-header" style={{ marginBottom: 'var(--space-lg)', padding: 0, border: 'none' }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '12px', fontWeight: 700 }}>
+                                <div className="avatar avatar-sm" style={{ background: 'var(--primary-500)', color: 'white' }}>
+                                    <Pencil size={18} />
+                                </div>
+                                학생 기본 정보 수정
+                            </h3>
                             <button className="btn btn-ghost btn-icon" onClick={() => setShowEditModal(false)}>✕</button>
                         </div>
-                        <div className="modal-body">
+                        <div className="modal-body" style={{ padding: 0 }}>
                             <div className="form-group">
                                 <label className="form-label">이름</label>
-                                <input className="form-input" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                                <input className="form-input" style={{ fontSize: '1.05rem', fontWeight: 600 }} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
                             </div>
                             <div className="grid-2">
                                 <div className="form-group">
@@ -1016,18 +2677,143 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             </div>
                             <div className="grid-2">
                                 <div className="form-group">
-                                    <label className="form-label">목표 대학</label>
-                                    <input className="form-input" value={editForm.targetUniv} onChange={(e) => setEditForm({ ...editForm, targetUniv: e.target.value })} />
+                                    <label className="form-label">반</label>
+                                    <input type="number" className="form-input" placeholder="반" value={editForm.classNumber} onChange={(e) => setEditForm({ ...editForm, classNumber: e.target.value ? Number(e.target.value) : '' })} />
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">목표 학과</label>
-                                    <input className="form-input" value={editForm.targetMajor} onChange={(e) => setEditForm({ ...editForm, targetMajor: e.target.value })} />
+                                    <label className="form-label">번호</label>
+                                    <input type="number" className="form-input" placeholder="번호" value={editForm.studentNumber} onChange={(e) => setEditForm({ ...editForm, studentNumber: e.target.value ? Number(e.target.value) : '' })} />
                                 </div>
                             </div>
+                            <div className="form-group">
+                                <label className="form-label">학생 메모 (이름 하단 노출)</label>
+                                <textarea 
+                                    className="form-textarea" 
+                                    placeholder="학생의 개별 특이사항을 기록하세요." 
+                                    value={editForm.studentMemo} 
+                                    onChange={(e) => setEditForm({ ...editForm, studentMemo: e.target.value })} 
+                                    style={{ minHeight: 80 }} 
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">담임교사 메모 (개요 카드)</label>
+                                <textarea 
+                                    className="form-textarea" 
+                                    placeholder="담임교사의 종합 의견을 기록하세요." 
+                                    value={editForm.teacherMemo} 
+                                    onChange={(e) => setEditForm({ ...editForm, teacherMemo: e.target.value })} 
+                                    style={{ minHeight: 100 }} 
+                                />
+                            </div>
                         </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setShowEditModal(false)}>취소</button>
-                            <button className="btn btn-primary" onClick={handleSaveEdit}>저장</button>
+                        <div className="modal-footer" style={{ padding: 0, border: 'none', marginTop: 'var(--space-xl)', gap: 'var(--space-md)' }}>
+                            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowEditModal(false)}>취소</button>
+                            <button className="btn btn-primary" style={{ flex: 2, height: '48px' }} onClick={handleSaveEdit}>수정사항 저장하기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Folder Creation Modal */}
+            {showFolderModal && (
+                <div className="modal-overlay" onClick={() => setShowFolderModal(false)} style={{ zIndex: 1000 }}>
+                    <div className="modal card-glass" onClick={(e) => e.stopPropagation()} style={{ 
+                        maxWidth: '400px', 
+                        padding: 'var(--space-lg)', 
+                        border: '1px solid var(--primary-600)',
+                        boxShadow: '0 0 40px rgba(99, 102, 241, 0.4)'
+                    }}>
+                        <div className="modal-header" style={{ marginBottom: 'var(--space-md)', padding: 0, border: 'none' }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Folder size={24} color="var(--primary-400)" />
+                                새 폴더 생성
+                            </h3>
+                        </div>
+                        <div className="modal-body" style={{ padding: 0 }}>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' }}>
+                                {folderModalTarget?.cat} &gt; {folderModalTarget?.parentId ? folders.find(f => f.id === folderModalTarget.parentId)?.name : '루트'} 아래에 생성
+                            </p>
+                            <div className="form-group">
+                                <label className="form-label">폴더 이름</label>
+                                <input 
+                                    className="form-input" 
+                                    autoFocus
+                                    placeholder="폴더 이름을 입력하세요"
+                                    value={newFolderName}
+                                    onChange={(e) => setNewFolderName(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && confirmCreateFolder()}
+                                />
+                            </div>
+                        </div>
+                        <div className="modal-footer" style={{ padding: 0, border: 'none', marginTop: 'var(--space-lg)', gap: 'var(--space-sm)' }}>
+                            <button className="btn btn-secondary" onClick={() => setShowFolderModal(false)}>취소</button>
+                            <button className="btn btn-primary" onClick={confirmCreateFolder}>생성</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteModal && (
+                <div className="modal-overlay" onClick={() => setShowDeleteModal(false)} style={{ zIndex: 1100 }}>
+                    <div className="modal card-glass" onClick={(e) => e.stopPropagation()} style={{ 
+                        maxWidth: '400px', 
+                        padding: 'var(--space-lg)', 
+                        border: '1px solid var(--danger-600)',
+                        boxShadow: '0 0 40px rgba(239, 68, 68, 0.4)'
+                    }}>
+                        <div className="modal-header" style={{ marginBottom: 'var(--space-md)', padding: 0, border: 'none' }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--danger-400)' }}>
+                                <AlertTriangle size={24} />
+                                {deleteTarget?.type === 'file' ? '파일 삭제' : '폴더 삭제'}
+                            </h3>
+                        </div>
+                        <div className="modal-body" style={{ padding: 0 }}>
+                            <p style={{ fontSize: '1rem', marginBottom: 'var(--space-xs)' }}>
+                                <strong>"{deleteTarget?.name}"</strong> {deleteTarget?.type === 'file' ? '파일을' : '폴더를'} 삭제하시겠습니까?
+                            </p>
+                            {deleteTarget?.type === 'folder' && (
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', background: 'rgba(239, 68, 68, 0.1)', padding: '8px', borderRadius: '4px', borderLeft: '3px solid var(--danger-500)' }}>
+                                    ※ 폴더 내부의 모든 하위 폴더와 파일이 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                                </p>
+                            )}
+                        </div>
+                        <div className="modal-footer" style={{ padding: 0, border: 'none', marginTop: 'var(--space-lg)', gap: 'var(--space-sm)' }}>
+                            <button className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>취소</button>
+                            <button className="btn btn-primary" style={{ background: 'var(--danger-600)', borderColor: 'var(--danger-500)' }} onClick={confirmDelete}>삭제하기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Analyzing Overlay */}
+            {/* Processing / Analyzing Overlay */}
+            {isAnalyzing && (
+                <div className="modal-overlay" style={{ zIndex: 9999, background: 'rgba(5, 5, 20, 0.9)', backdropFilter: 'blur(8px)' }}>
+                    <div className="card-glass" style={{ 
+                        padding: '40px', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        alignItems: 'center', 
+                        gap: '24px',
+                        border: '1px solid var(--primary-500)',
+                        boxShadow: '0 0 80px rgba(99, 102, 241, 0.4)',
+                        maxWidth: '450px'
+                    }}>
+                        <div style={{ position: 'relative' }}>
+                            <div style={{ width: 80, height: 80, borderRadius: '50%', border: '2px solid rgba(99, 102, 241, 0.2)', borderTop: '2px solid var(--primary-500)', animation: 'spin 1s linear infinite' }} />
+                            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'var(--primary-400)' }}>
+                                <Brain size={32} className="pulse" />
+                            </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                            <h2 style={{ color: 'white', fontWeight: 700, marginBottom: '12px', fontSize: '1.5rem', letterSpacing: '-0.02em' }}>
+                                서류를 정밀 분석 중입니다
+                            </h2>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: 1.6 }}>
+                                AI가 학생의 핵심 역량과 전공 적합성을 추출하고 있습니다.<br />
+                                잠시만 기다려 주세요 (약 5~10초 소요)
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -1037,6 +2823,25 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             {toast && (
                 <div className="toast toast-success">{toast}</div>
             )}
+
+            <style jsx>{`
+                .tree-new-btn:hover {
+                    background: var(--bg-card-hover) !important;
+                    border-color: var(--primary-400) !important;
+                    color: var(--primary-300) !important;
+                    transform: scale(1.02);
+                }
+                .tree-node-content:hover {
+                    background: var(--bg-card-hover) !important;
+                    transform: translateY(-1px);
+                    box-shadow: var(--shadow-md) !important;
+                }
+                .tree-node-content.drag-over {
+                    border-color: var(--primary-500) !important;
+                    background: rgba(99, 102, 241, 0.1) !important;
+                    box-shadow: 0 0 10px var(--primary-500)55 !important;
+                }
+            `}</style>
         </div>
     );
 }

@@ -1,6 +1,10 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
+import { 
+    Target, GraduationCap, School, BookOpen, BarChart2, TrendingUp, TrendingDown, 
+    Clipboard, Inbox, Upload, Save, Trash2, X, CheckCircle, AlertTriangle, Info, MapPin, Plus
+} from 'lucide-react';
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -69,11 +73,35 @@ const chartGridColor = 'rgba(30, 41, 59, 0.5)';
 // ============ COMPONENT ============
 
 export default function AdmissionComparisonPage() {
-    const [selectedStudent, setSelectedStudent] = useState('stu-001');
-    const [selectedUniv, setSelectedUniv] = useState('서울대학교');
-    const [selectedMajor, setSelectedMajor] = useState('물리학과');
+    const [authMode, setAuthMode] = useState<'demo' | 'user'>('user');
+    const [selectedStudent, setSelectedStudent] = useState('');
+    const [selectedUniv, setSelectedUniv] = useState('');
+    const [selectedMajor, setSelectedMajor] = useState('');
+
+    useEffect(() => {
+        const mode = localStorage.getItem('authMode') as 'demo' | 'user';
+        if (mode) {
+            setAuthMode(mode);
+            if (mode === 'demo') {
+                setSelectedStudent('stu-001');
+                setSelectedUniv('서울대학교');
+                setSelectedMajor('물리학과');
+            }
+        }
+    }, []);
+
+    const isDemo = authMode === 'demo';
+    const students = useMemo(() => isDemo ? demoStudents : [], [isDemo]);
+    const benchmarksData = useMemo(() => isDemo ? initialBenchmarks : [], [isDemo]);
+    const gradesData = useMemo(() => isDemo ? studentGrades : {}, [isDemo]);
+
     const [searchQuery, setSearchQuery] = useState('');
-    const [benchmarks, setBenchmarks] = useState<AdmissionBenchmark[]>(initialBenchmarks);
+    const [benchmarks, setBenchmarks] = useState<AdmissionBenchmark[]>([]);
+
+    useEffect(() => {
+        setBenchmarks(benchmarksData);
+    }, [benchmarksData]);
+
     const [toast, setToast] = useState<string | null>(null);
     const [showDataPanel, setShowDataPanel] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -110,8 +138,8 @@ export default function AdmissionComparisonPage() {
         ? universities.filter(u => u.includes(searchQuery))
         : universities;
 
-    const studentData = studentGrades[selectedStudent];
-    const student = demoStudents.find(s => s.id === selectedStudent)!;
+    const studentData = selectedStudent ? (gradesData as any)[selectedStudent] : null;
+    const student = selectedStudent ? students.find(s => s.id === selectedStudent) : null;
 
     // ============ GAP ANALYSIS ============
 
@@ -132,9 +160,9 @@ export default function AdmissionComparisonPage() {
     // Admission zone classification
     const getAdmissionZone = () => {
         if (!gpaGap) return null;
-        if (gpaGap <= 0) return { label: '합격 안정권', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', icon: '✅' };
-        if (gpaGap <= 0.5) return { label: '추가합격권', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)', icon: '⚠️' };
-        return { label: '소신지원권', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)', icon: '🔴' };
+        if (gpaGap <= 0) return { label: '합격 안정권', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', icon: <CheckCircle size={28} /> };
+        if (gpaGap <= 0.5) return { label: '추가합격권', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)', icon: <AlertTriangle size={28} /> };
+        return { label: '소신지원권', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)', icon: <Info size={28} /> };
     };
 
     const zone = getAdmissionZone();
@@ -143,10 +171,10 @@ export default function AdmissionComparisonPage() {
 
     // GPA Bar Chart - 3개년 합격자 vs 학생
     const gpaChartData = {
-        labels: filtered.map(b => `${b.year}년 합격 평균`).concat([`${student.name} 현재`]),
+        labels: filtered.map(b => `${b.year}년 합격 평균`).concat([`${student?.name || '학생'} 현재`]),
         datasets: [{
             label: '내신 평균 등급',
-            data: [...filtered.map(b => b.gpaAvg), studentData.gpaAvg],
+            data: [...filtered.map(b => b.gpaAvg), studentData?.gpaAvg || 0],
             backgroundColor: [
                 ...filtered.map(() => 'rgba(99, 102, 241, 0.25)'),
                 zone?.color === '#10b981' ? 'rgba(16, 185, 129, 0.8)' :
@@ -170,7 +198,7 @@ export default function AdmissionComparisonPage() {
             legend: { display: false },
             title: {
                 display: true,
-                text: '📊 내신 등급 비교 (낮을수록 우수)',
+                text: '내신 등급 비교 (낮을수록 우수)',
                 color: '#f1f5f9',
                 font: { size: 14, family: 'Inter', weight: 'bold' as const },
                 padding: { bottom: 16 },
@@ -214,12 +242,12 @@ export default function AdmissionComparisonPage() {
                 borderRadius: 6,
             },
             {
-                label: `${student.name} 현재`,
+                label: `${student?.name || '학생'} 현재`,
                 data: [
-                    studentData.korean,
-                    studentData.math,
-                    studentData.english,
-                    studentData.science,
+                    studentData?.korean || 0,
+                    studentData?.math || 0,
+                    studentData?.english || 0,
+                    studentData?.science || 0,
                 ],
                 backgroundColor: 'rgba(52, 211, 153, 0.7)',
                 borderColor: '#34d399',
@@ -238,7 +266,7 @@ export default function AdmissionComparisonPage() {
             },
             title: {
                 display: true,
-                text: '📈 수능/모의고사 영역별 비교 (백분위)',
+                text: '수능/모의고사 영역별 비교 (백분위)',
                 color: '#f1f5f9',
                 font: { size: 14, family: 'Inter', weight: 'bold' as const },
                 padding: { bottom: 16 },
@@ -285,7 +313,7 @@ export default function AdmissionComparisonPage() {
             legend: { display: false },
             title: {
                 display: true,
-                text: '📉 3개년 합격 내신 추이',
+                text: '3개년 합격 내신 추이',
                 color: '#f1f5f9',
                 font: { size: 14, family: 'Inter', weight: 'bold' as const },
                 padding: { bottom: 16 },
@@ -334,19 +362,19 @@ export default function AdmissionComparisonPage() {
             }
             if (parsed.length > 0) {
                 setBenchmarks(prev => [...prev, ...parsed]);
-                showToast(`✅ ${parsed.length}건의 합격 데이터가 추가되었습니다.`);
+                showToast(`${parsed.length}건의 합격 데이터가 추가되었습니다.`);
             } else {
-                showToast('⚠️ 파싱 가능한 데이터가 없습니다.');
+                showToast('파싱 가능한 데이터가 없습니다.');
             }
         } catch {
-            showToast('❌ 파일 처리 중 오류가 발생했습니다.');
+            showToast('파일 처리 중 오류가 발생했습니다.');
         }
         setUploading(false);
     };
 
     const handleManualSubmit = () => {
         if (!manualForm.university || !manualForm.major || !manualForm.gpaAvg) {
-            showToast('⚠️ 대학명, 학과명, 내신 평균은 필수입니다.');
+            showToast('대학명, 학과명, 내신 평균은 필수입니다.');
             return;
         }
         const newBenchmark: AdmissionBenchmark = {
@@ -373,7 +401,7 @@ export default function AdmissionComparisonPage() {
 
     const handleDeleteBenchmark = (id: string) => {
         setBenchmarks(prev => prev.filter(b => b.id !== id));
-        showToast('🗑️ 합격 데이터가 삭제되었습니다.');
+        showToast('합격 데이터가 삭제되었습니다.');
     };
 
     // ============ RENDER ============
@@ -382,7 +410,10 @@ export default function AdmissionComparisonPage() {
         <div>
             {/* Page Header */}
             <div style={{ marginBottom: 'var(--space-lg)' }}>
-                <h2 style={{ fontWeight: 700 }}>🎯 합격 예측 비교</h2>
+                <h2 style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Target size={24} color="var(--primary-400)" />
+                    합격 예측 비교
+                </h2>
                 <p className="text-sm text-muted" style={{ marginTop: '2px' }}>
                     목표 학과의 합격 데이터와 학생 성적을 비교 분석합니다
                 </p>
@@ -392,19 +423,26 @@ export default function AdmissionComparisonPage() {
             <div className="card-glass" style={{ marginBottom: 'var(--space-lg)', padding: 'var(--space-lg)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-md)', alignItems: 'flex-end' }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">👨‍🎓 학생 선택</label>
+                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <GraduationCap size={16} />
+                            학생 선택
+                        </label>
                         <select
                             className="form-select"
                             value={selectedStudent}
                             onChange={(e) => setSelectedStudent(e.target.value)}
                         >
-                            {demoStudents.map(s => (
+                            <option value="">학생을 선택하세요</option>
+                            {students.map(s => (
                                 <option key={s.id} value={s.id}>{s.name} ({s.school} {s.grade}학년)</option>
                             ))}
                         </select>
                     </div>
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">🏫 대학 선택</label>
+                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <School size={16} />
+                            대학 선택
+                        </label>
                         <div style={{ position: 'relative' }}>
                             <input
                                 className="form-input"
@@ -433,7 +471,10 @@ export default function AdmissionComparisonPage() {
                         </div>
                     </div>
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">📚 학과 선택</label>
+                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <BookOpen size={16} />
+                            학과 선택
+                        </label>
                         <select
                             className="form-select"
                             value={selectedMajor}
@@ -457,14 +498,17 @@ export default function AdmissionComparisonPage() {
                             background: zone.bg,
                             gridColumn: '1 / -1',
                             padding: 'var(--space-lg)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 'var(--space-lg)',
                         }}>
-                            <div style={{ fontSize: '2rem' }}>{zone.icon}</div>
+                            <div style={{ color: zone.color }}>{zone.icon}</div>
                             <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: zone.color, marginBottom: '4px' }}>
                                     {zone.label}
                                 </div>
                                 <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                                    {student.name} 학생은 {selectedUniv} {selectedMajor} 기준으로{' '}
+                                    {student?.name || '학생'} 학생은 {selectedUniv} {selectedMajor} 기준으로{' '}
                                     <strong style={{ color: zone.color }}>
                                         {gpaGap !== null && gpaGap > 0
                                             ? `내신 ${gpaGap.toFixed(1)}등급 보완 필요`
@@ -501,28 +545,28 @@ export default function AdmissionComparisonPage() {
 
                     {/* Stats */}
                     <div className="stat-card">
-                        <div className="stat-icon blue">📊</div>
+                        <div className="stat-icon blue"><BarChart2 size={24} /></div>
                         <div>
-                            <div className="stat-value">{studentData.gpaAvg}</div>
+                            <div className="stat-value">{studentData?.gpaAvg || '-'}</div>
                             <div className="stat-label">학생 내신 평균</div>
                         </div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-icon green">🎯</div>
+                        <div className="stat-icon green"><Target size={24} /></div>
                         <div>
                             <div className="stat-value">{latestBenchmark.gpaAvg}</div>
                             <div className="stat-label">합격 내신 평균</div>
                         </div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-icon yellow">📈</div>
+                        <div className="stat-icon yellow"><TrendingUp size={24} /></div>
                         <div>
                             <div className="stat-value">{gpaGap !== null ? (gpaGap > 0 ? `+${gpaGap.toFixed(1)}` : gpaGap.toFixed(1)) : '-'}</div>
                             <div className="stat-label">내신 격차</div>
                         </div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-icon red">📋</div>
+                        <div className="stat-icon red"><Clipboard size={24} /></div>
                         <div>
                             <div className="stat-value">{filtered.length}</div>
                             <div className="stat-label">비교 데이터 수</div>
@@ -533,7 +577,7 @@ export default function AdmissionComparisonPage() {
 
             {filtered.length === 0 && (
                 <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)', marginBottom: 'var(--space-lg)' }}>
-                    <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-md)' }}>📭</div>
+                    <Inbox size={48} style={{ marginBottom: 'var(--space-md)', opacity: 0.2, margin: '0 auto' }} />
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
                         선택한 대학/학과의 합격 데이터가 없습니다.<br />
                         아래 데이터 관리 패널에서 데이터를 추가해주세요.
@@ -577,9 +621,10 @@ export default function AdmissionComparisonPage() {
                         <div style={{
                             marginTop: 'var(--space-md)', padding: 'var(--space-sm) var(--space-md)',
                             background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
-                            fontSize: '0.78rem', color: 'var(--text-muted)',
+                            fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px'
                         }}>
-                            💡 반투명 막대 = 합격자 평균 · 진한 막대 = 학생 성적
+                            <Info size={14} />
+                            반투명 막대 = 합격자 평균 · 진한 막대 = 학생 성적
                         </div>
                     </div>
                 </div>
@@ -598,8 +643,9 @@ export default function AdmissionComparisonPage() {
                         background: zone?.bg || 'var(--bg-secondary)', borderRadius: 'var(--radius-md)',
                         borderLeft: `3px solid ${zone?.color || 'var(--primary-500)'}`,
                     }}>
-                        <span style={{ fontSize: '0.85rem', color: zone?.color || 'var(--text-secondary)' }}>
-                            📌 {student.name} 현재 내신: <strong>{studentData.gpaAvg}등급</strong>
+                        <span style={{ fontSize: '0.85rem', color: zone?.color || 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <MapPin size={14} />
+                            {student?.name || '학생'} 현재 내신: <strong>{studentData?.gpaAvg || '-'}등급</strong>
                             {zone && <> — <strong>{zone.label}</strong></>}
                         </span>
                     </div>
@@ -609,12 +655,16 @@ export default function AdmissionComparisonPage() {
             {/* Data Management Panel */}
             <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
                 <div className="card-header">
-                    <h3 className="card-title">🗄️ 합격 데이터 관리</h3>
+                    <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Clipboard size={18} />
+                        합격 데이터 관리
+                    </h3>
                     <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => setShowDataPanel(!showDataPanel)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                        {showDataPanel ? '✕ 닫기' : '➕ 데이터 추가'}
+                        {showDataPanel ? <><X size={14} /> 닫기</> : <><Plus size={14} /> 데이터 추가</>}
                     </button>
                 </div>
 
@@ -626,7 +676,7 @@ export default function AdmissionComparisonPage() {
                             style={{ marginBottom: 'var(--space-lg)' }}
                             onClick={() => fileInputRef.current?.click()}
                         >
-                            <div className="dropzone-icon">📤</div>
+                            <Upload size={32} style={{ marginBottom: 'var(--space-sm)', opacity: 0.5 }} />
                             <p className="dropzone-text">
                                 CSV 파일을 <strong>클릭</strong>하여 업로드
                             </p>
@@ -652,7 +702,10 @@ export default function AdmissionComparisonPage() {
                         </div>
 
                         {/* Manual Input Form */}
-                        <h4 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>✏️ 수동 입력</h4>
+                        <h4 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Save size={16} />
+                            수동 입력
+                        </h4>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
                             <div className="form-group" style={{ marginBottom: 0 }}>
                                 <label className="form-label">대학명 *</label>
@@ -704,8 +757,8 @@ export default function AdmissionComparisonPage() {
                                     <option value="정시">정시</option>
                                 </select>
                             </div>
-                            <button className="btn btn-primary" onClick={handleManualSubmit}>
-                                💾 데이터 저장
+                            <button className="btn btn-primary" onClick={handleManualSubmit} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Save size={16} /> 데이터 저장
                             </button>
                         </div>
                     </div>
@@ -713,8 +766,9 @@ export default function AdmissionComparisonPage() {
 
                 {/* Existing Data Table */}
                 <div style={{ marginTop: 'var(--space-lg)' }}>
-                    <h4 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>
-                        📋 저장된 합격 데이터 ({selectedUniv} {selectedMajor})
+                    <h4 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Clipboard size={16} />
+                        저장된 합격 데이터 ({selectedUniv || '미선택'} {selectedMajor || '미선택'})
                     </h4>
                     {filtered.length > 0 ? (
                         <div className="table-wrapper">
@@ -743,7 +797,9 @@ export default function AdmissionComparisonPage() {
                                             <td>{b.scienceAvg ?? '-'}</td>
                                             <td>
                                                 <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteBenchmark(b.id)}
-                                                    style={{ color: 'var(--danger-400)' }}>🗑️</button>
+                                                    style={{ color: 'var(--danger-400)' }}>
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}

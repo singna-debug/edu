@@ -1,23 +1,8 @@
-// Google Cloud Storage 클라이언트
-import { Storage, Bucket } from '@google-cloud/storage';
+import { getAdminStorage } from './firebaseAdmin';
 
-let storage: Storage;
-let bucket: Bucket;
-
-function getStorage(): Storage {
-    if (!storage) {
-        storage = new Storage({
-            projectId: process.env.GOOGLE_CLOUD_PROJECT,
-        });
-    }
-    return storage;
-}
-
-export function getBucket(): Bucket {
-    if (!bucket) {
-        bucket = getStorage().bucket(process.env.GCS_BUCKET_NAME || 'admitflow-files');
-    }
-    return bucket;
+function getBucket() {
+    const bucketName = process.env.GCS_BUCKET_NAME || 'admitflow-files';
+    return getAdminStorage().bucket(bucketName);
 }
 
 /**
@@ -82,5 +67,5 @@ export async function listStudentFiles(
 ): Promise<string[]> {
     const prefix = category ? `${studentId}/${category}/` : `${studentId}/`;
     const [files] = await getBucket().getFiles({ prefix });
-    return files.map(f => f.name);
+    return files.map((f: any) => f.name);
 }

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Memo, StudentFile, GradeRecord } from '@/lib/types';
+import { Search, FileText, BarChart, File, Paperclip, RefreshCw, Lightbulb, Info } from 'lucide-react';
 
 // ============ STUDENT-SPECIFIC DEMO DATA ============
 
@@ -78,20 +79,26 @@ const studentsData: StudentData[] = [
     },
 ];
 
-const studentNameMap: Record<string, string> = {
-    'stu-001': '김민준', 'stu-002': '이서연', 'stu-003': '박지호', 'stu-004': '최수아',
-};
-
 export default function SearchPage() {
+    const [authMode, setAuthMode] = useState<'demo' | 'user'>('user');
+
+    useEffect(() => {
+        const mode = localStorage.getItem('authMode') as 'demo' | 'user';
+        if (mode) setAuthMode(mode);
+    }, []);
+
+    const isDemo = authMode === 'demo';
+    const students = useMemo(() => isDemo ? studentsData : [], [isDemo]);
+
     const [query, setQuery] = useState('');
     const [studentFilter, setStudentFilter] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [result, setResult] = useState<{ answer: string; sources: { text: string; category: string; studentName: string }[] } | null>(null);
 
     const filteredStudents = useMemo(() => {
-        if (studentFilter) return studentsData.filter(s => s.id === studentFilter);
-        return studentsData;
-    }, [studentFilter]);
+        if (studentFilter) return students.filter(s => s.id === studentFilter);
+        return students;
+    }, [studentFilter, students]);
 
     const handleSearch = () => {
         if (!query.trim()) return;
@@ -104,7 +111,7 @@ export default function SearchPage() {
 
             const answerLines: string[] = [];
             const sources: { text: string; category: string; studentName: string }[] = [];
-            const filterLabel = studentFilter ? studentNameMap[studentFilter] : '전체';
+            const filterLabel = studentFilter ? (students.find(s => s.id === studentFilter)?.name || '학생') : '전체';
 
             answerLines.push(`"${query}"에 대한 검색 결과입니다. (대상: ${filterLabel})\n`);
 
@@ -125,7 +132,7 @@ export default function SearchPage() {
                     }
                     if (targetSubs.length === 0) continue;
 
-                    answerLines.push(`\n📊 **${stu.name}** (${stu.school})\n`);
+                    answerLines.push(`\n**${stu.name}** (${stu.school})\n`);
 
                     for (const subName of targetSubs) {
                         const records = naesin
@@ -167,14 +174,14 @@ export default function SearchPage() {
 
                     if (matchedMemos.length === 0 && matchedFiles.length === 0) continue;
 
-                    answerLines.push(`\n📋 **${stu.name}** (${stu.school})\n`);
+                    answerLines.push(`\n**${stu.name}** (${stu.school})\n`);
 
                     matchedMemos.forEach((m, i) => {
                         answerLines.push(`${i + 1}. [${m.category}] ${m.content}`);
                         sources.push({ text: m.content.slice(0, 60), category: m.category, studentName: stu.name });
                     });
                     matchedFiles.forEach(f => {
-                        answerLines.push(`  📄 ${f.fileName} — ${f.summary || ''}`);
+                        answerLines.push(`  - ${f.fileName} ${f.summary ? `— ${f.summary}` : ''}`);
                         sources.push({ text: f.fileName, category: f.category, studentName: stu.name });
                     });
                 }
@@ -218,8 +225,11 @@ export default function SearchPage() {
 
     return (
         <div>
-            <div style={{ marginBottom: 'var(--space-lg)' }}>
-                <h2 style={{ fontWeight: 700 }}>🔍 AI 자연어 검색</h2>
+            <div style={{ marginBottom: 'var(--space-xl)' }}>
+                <h2 style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Search size={22} color="var(--primary-400)" />
+                    AI 자연어 검색
+                </h2>
                 <p className="text-sm text-muted" style={{ marginTop: '2px' }}>
                     RAG 기반으로 학생의 활동 기록에서 관련 내용을 검색합니다
                 </p>
@@ -230,10 +240,7 @@ export default function SearchPage() {
                 <div style={{ display: 'flex', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
                     <select className="form-select" value={studentFilter} onChange={(e) => { setStudentFilter(e.target.value); setResult(null); }} style={{ width: 160 }}>
                         <option value="">전체 학생</option>
-                        <option value="stu-001">김민준</option>
-                        <option value="stu-002">이서연</option>
-                        <option value="stu-003">박지호</option>
-                        <option value="stu-004">최수아</option>
+                        {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     <input
                         className="form-input"
@@ -244,7 +251,7 @@ export default function SearchPage() {
                         style={{ flex: 1 }}
                     />
                     <button className="btn btn-primary" onClick={handleSearch} disabled={isSearching}>
-                        {isSearching ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : '🔍 검색'}
+                        {isSearching ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : '검색'}
                     </button>
                 </div>
 
@@ -252,7 +259,7 @@ export default function SearchPage() {
                 <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
                     {['물리 관련 활동', '리더십 사례', '대회 참가 이력', '봉사활동 내역', '진로 탐색 활동', '국어,수학 내신 평균', '전체 성적 현황'].map((q) => (
                         <button key={q} className="btn btn-ghost btn-sm" onClick={() => setQuery(q)} style={{ fontSize: '0.78rem' }}>
-                            🔹 {q}
+                            {q}
                         </button>
                     ))}
                 </div>
@@ -261,13 +268,19 @@ export default function SearchPage() {
             {/* Results */}
             {result && (
                 <div className="card">
-                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)' }}>💡 검색 결과</h3>
+                    <h3 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Lightbulb size={20} color="var(--warning-400)" />
+                        검색 결과
+                    </h3>
                     <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 'var(--space-lg)' }}>
                         {result.answer}
                     </div>
                     {result.sources.length > 0 && (
                         <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-md)' }}>
-                            <h5 style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>📎 출처</h5>
+                            <h5 style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Paperclip size={14} />
+                                출처
+                            </h5>
                             {result.sources.map((src, idx) => (
                                 <div key={idx} style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', marginBottom: '8px', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)' }}>
                                     <span className="badge badge-blue" style={{ minWidth: 22, textAlign: 'center' }}>{idx + 1}</span>
@@ -278,14 +291,17 @@ export default function SearchPage() {
                             ))}
                         </div>
                     )}
-                    <button className="btn btn-ghost btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => setResult(null)}>🔄 새 검색</button>
+                    <button className="btn btn-ghost btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => setResult(null)}>
+                        <RefreshCw size={14} style={{ marginRight: '6px' }} />
+                        새 검색
+                    </button>
                 </div>
             )}
 
             {/* Empty State */}
             {!result && (
                 <div className="card" style={{ textAlign: 'center', padding: 'var(--space-3xl)' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: 'var(--space-md)' }}>🔍</div>
+                    <Search size={48} style={{ marginBottom: 'var(--space-md)', opacity: 0.2, margin: '0 auto' }} />
                     <h3 style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-sm)' }}>AI 검색 엔진</h3>
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: 400, margin: '0 auto' }}>
                         자연어로 질문하면 학생의 메모, 파일, 활동 기록, 성적에서 관련 내용을 찾아 답변합니다.
