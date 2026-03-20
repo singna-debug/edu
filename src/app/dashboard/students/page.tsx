@@ -81,7 +81,7 @@ export default function StudentsPage() {
         const mode = (localStorage.getItem('authMode') as 'demo' | 'user') || 'user';
         setAuthMode(mode);
         
-        const unsubscribe = auth.onAuthStateChanged((user) => {
+        const unsubscribe = auth.onAuthStateChanged((user: any) => {
             fetchStudents(mode);
         });
 

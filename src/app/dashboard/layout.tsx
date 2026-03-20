@@ -68,7 +68,7 @@ export default function DashboardLayout({
         setUserPhoto(photo || '');
 
         // 2. Real-time update from Firebase Auth
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
+        const unsubscribe = onAuthStateChanged(auth, (user: any) => {
             if (user && mode !== 'demo') {
                 setUserName(user.displayName || user.email?.split('@')[0] || '정식 컨설턴트');
                 setUserEmail(user.email || '');

@@ -310,7 +310,7 @@ export default function DashboardPage() {
         setIsDemo(isDemoMode);
         setIsLoaded(true);
 
-        const unsubscribe = auth.onAuthStateChanged((user) => {
+        const unsubscribe = auth.onAuthStateChanged((user: any) => {
             fetchData(isDemoMode ? 'demo' : 'user');
         });
 
