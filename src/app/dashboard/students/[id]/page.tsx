@@ -877,7 +877,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         setUserRole(role);
         setParentConsultantId(pId);
         
-        const unsubscribe = auth.onAuthStateChanged((user) => {
+        const unsubscribe = auth.onAuthStateChanged((user: any) => {
             fetchData(id, mode && id.startsWith('stu-'));
         });
 

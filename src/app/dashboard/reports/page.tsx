@@ -16,7 +16,7 @@ export default function ReportsPage() {
         const mode = localStorage.getItem('authMode') as 'demo' | 'user';
         if (mode) setAuthMode(mode);
 
-        const unsubscribe = auth.onAuthStateChanged(async (user) => {
+        const unsubscribe = auth.onAuthStateChanged(async (user: any) => {
             if (mode === 'demo') {
                 setStudents([
                     { id: 'stu-001', name: '김민준' },
