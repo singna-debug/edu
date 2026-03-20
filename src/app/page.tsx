@@ -128,23 +128,44 @@ export default function LoginPage() {
           {/* Login Form / Approval Status */}
           <div className="login-form">
             {isApproved === false ? (
-              <div style={{ textAlign: 'center', animation: 'scaleUp 0.3s ease-out' }}>
-                <div style={{ 
-                  background: 'rgba(245, 158, 11, 0.1)', 
-                  border: '1px solid rgba(245, 158, 11, 0.2)', 
-                  padding: 'var(--space-md)', 
-                  borderRadius: 'var(--radius-md)',
-                  marginBottom: 'var(--space-lg)'
-                }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-md)' }}>⌛</div>
-                  <h3 style={{ fontSize: '1.2rem', marginBottom: '8px', color: 'var(--warning-400)' }}>가입 승인 대기 중</h3>
-                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                    계정({userEmail})의 등록은 완료되었습니다.<br />
-                    보안을 위해 <strong>개발자의 최종 승인</strong>이 필요합니다.<br />
-                    승인이 완료될 때까지 잠시만 기다려 주세요.
+              <div className="approval-pending-container">
+                <div className="glass-card-premium">
+                  <div className="status-icon-wrapper">
+                    <div className="status-icon-pulse"></div>
+                    <span className="status-icon">⌛</span>
+                  </div>
+                  
+                  <h3 className="status-title">가입 승인 대기 중</h3>
+                  
+                  <div className="status-info-box">
+                    <div className="info-row">
+                      <span className="info-label">계정</span>
+                      <span className="info-value">{userEmail}</span>
+                    </div>
+                    <div className="info-row">
+                      <span className="info-label">상태</span>
+                      <span className="info-value status-tag">검토 중</span>
+                    </div>
+                  </div>
+
+                  <p className="status-description">
+                    에듀플로우 AI 가입을 환영합니다! ✨<br />
+                    보안을 위해 <strong>관리자의 승인</strong> 후 정식 이용이 가능합니다.<br />
+                    승인이 완료되면 이메일로 알려드립니다.
                   </p>
+
+                  <div className="divider-subtle" />
+
+                  <button 
+                    className="btn btn-ghost w-full btn-switch-account" 
+                    onClick={() => { setIsApproved(null); auth.signOut(); }}
+                  >
+                    <span>다른 계정으로 로그인</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/>
+                    </svg>
+                  </button>
                 </div>
-                <button className="btn btn-ghost w-full" onClick={() => { setIsApproved(null); auth.signOut(); }}>다른 계정으로 로그인</button>
               </div>
             ) : (
               <>
@@ -350,6 +371,130 @@ export default function LoginPage() {
 
         .login-feature-icon {
           font-size: 1.3rem;
+        }
+
+        /* 추가 프리미엄 스타일 */
+        .approval-pending-container {
+          animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .glass-card-premium {
+          background: rgba(255, 255, 255, 0.03);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: var(--radius-xl);
+          padding: var(--space-xl);
+          text-align: center;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+        }
+
+        .status-icon-wrapper {
+          position: relative;
+          width: 80px;
+          height: 80px;
+          margin: 0 auto var(--space-lg);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .status-icon-pulse {
+          position: absolute;
+          inset: 0;
+          background: var(--warning-500);
+          border-radius: 50%;
+          filter: blur(20px);
+          opacity: 0.15;
+          animation: statusPulse 2s ease-in-out infinite;
+        }
+
+        .status-icon {
+          font-size: 3rem;
+          z-index: 1;
+        }
+
+        .status-title {
+          font-size: 1.5rem;
+          font-weight: 700;
+          color: white;
+          margin-bottom: var(--space-lg);
+          letter-spacing: -0.02em;
+        }
+
+        .status-info-box {
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: var(--radius-lg);
+          padding: var(--space-md) var(--space-lg);
+          margin-bottom: var(--space-lg);
+          border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .info-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 0;
+        }
+
+        .info-row:first-child {
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .info-label {
+          font-size: 0.8rem;
+          color: var(--text-muted);
+        }
+
+        .info-value {
+          font-size: 0.85rem;
+          color: rgba(255, 255, 255, 0.9);
+          font-weight: 500;
+        }
+
+        .status-tag {
+          color: var(--warning-400);
+          background: rgba(245, 158, 11, 0.1);
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 0.75rem;
+        }
+
+        .status-description {
+          font-size: 0.88rem;
+          line-height: 1.7;
+          color: var(--text-muted);
+          margin-bottom: var(--space-xl);
+        }
+
+        .divider-subtle {
+          height: 1px;
+          background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.05), transparent);
+          margin-bottom: var(--space-lg);
+        }
+
+        .btn-switch-account {
+          font-size: 0.85rem;
+          color: var(--text-muted);
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+
+        .btn-switch-account:hover {
+          color: white;
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        @keyframes statusPulse {
+          0%, 100% { transform: scale(0.9); opacity: 0.1; }
+          50% { transform: scale(1.1); opacity: 0.2; }
+        }
+
+        @keyframes slideUpFade {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
       `}</style>
     </div>
