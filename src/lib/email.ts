@@ -1,7 +1,11 @@
 import { Resend } from 'resend';
 
-// Resend 인스턴스 초기화
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Resend 인스턴스 초기화 (빌드 시 에러 방지를 위해 값이 있을 때만 생성하거나 함수 내에서 사용)
+const getResendInstance = () => {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) return null;
+    return new Resend(apiKey);
+};
 
 /**
  * 관리자에게 신규 가입 승인 요청 이메일 발송 (Resend API 사용)
@@ -15,10 +19,9 @@ export async function sendApprovalRequestEmail(userEmail: string, userId: string
     // 승인 링크 생성
     const approveUrl = `${appUrl}/api/admin/approve?userId=${userId}&token=${secretToken}`;
 
-    console.log(`[Email] Preparing Resend approval request for ${userEmail} to ${adminEmail}`);
-
     // API Key가 설정이 안 되어 있는 경우 로그로만 출력 (테스트용)
-    if (!resendApiKey) {
+    const resend = getResendInstance();
+    if (!resend) {
         console.warn('[Email] Resend API Key missing! (RESEND_API_KEY)');
         console.log(`[Approval Link For Dev] ${approveUrl}`);
         return { success: false, error: 'Configuration Missing' };
