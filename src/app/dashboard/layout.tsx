@@ -64,7 +64,7 @@ export default function DashboardLayout({
         
         setIsDemo(mode === 'demo');
         setUserName(name || (mode === 'demo' ? '데모 컨설턴트' : '정식 컨설턴트'));
-        setUserEmail(email || (mode === 'demo' ? 'demo@admitflow.ai' : 'consultant@admitflow.ai'));
+        setUserEmail(email || (mode === 'demo' ? 'demo@eduflow.ai' : 'consultant@eduflow.ai'));
         setUserPhoto(photo || '');
 
         // 2. Real-time update from Firebase Auth
@@ -112,8 +112,8 @@ export default function DashboardLayout({
             {/* Sidebar */}
             <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
                 <Link href="/dashboard" className="sidebar-brand" style={{ textDecoration: 'none' }}>
-                    <div className="sidebar-brand-icon">AF</div>
-                    <span className="sidebar-brand-text">AdmitFlow AI</span>
+                    <div className="sidebar-brand-icon">EF</div>
+                    <span className="sidebar-brand-text">EduFlow AI</span>
                 </Link>
 
 

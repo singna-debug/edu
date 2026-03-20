@@ -44,7 +44,7 @@ export default function SettingsPage() {
         const role = (localStorage.getItem('role') as 'consultant' | 'manager') || 'consultant';
         
         setUserName(name || (mode === 'demo' ? '데모 컨설턴트' : '정식 컨설턴트'));
-        setUserEmail(email || (mode === 'demo' ? 'demo@admitflow.ai' : 'consultant@admitflow.ai'));
+        setUserEmail(email || (mode === 'demo' ? 'demo@eduflow.ai' : 'consultant@eduflow.ai'));
         setUserRole(role);
 
         if (role === 'consultant') {

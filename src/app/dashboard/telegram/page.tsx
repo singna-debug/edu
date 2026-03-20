@@ -50,8 +50,7 @@ export default function TelegramPage() {
                                 <span style={{ fontWeight: 600, color: 'var(--accent-400)' }}>연결됨</span>
                             </div>
                             <div style={{ padding: 'var(--space-md)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)' }}>
-                                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Telegram Chat ID</div>
-                                <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>@admitflow_bot</div>
+                                <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>@eduflow_bot</div>
                             </div>
                             <button className="btn btn-danger btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => setIsConnected(false)}>
                                 연동 해제
@@ -60,7 +59,7 @@ export default function TelegramPage() {
                     ) : (
                         <div>
                             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)', lineHeight: 1.6 }}>
-                                1. Telegram에서 <strong style={{ color: 'var(--primary-400)' }}>@admitflow_bot</strong>을 검색<br />
+                                1. Telegram에서 <strong style={{ color: 'var(--primary-400)' }}>@eduflow_bot</strong>을 검색<br />
                                 2. <strong>/시작</strong> 명령을 전송<br />
                                 3. 받은 6자리 인증 코드를 아래에 입력
                             </p>

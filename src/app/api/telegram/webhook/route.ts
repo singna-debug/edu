@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
         // 명령어 파싱
         if (text.startsWith('/시작') || text.startsWith('/start')) {
             const authCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-            await sendTelegramMessage(chatId, `🎓 *AdmitFlow AI* 봇에 오신 것을 환영합니다!\n\n인증 코드: \`${authCode}\`\n\n웹 대시보드의 Telegram 연동 페이지에서 위 코드를 입력하세요.`);
+            await sendTelegramMessage(chatId, `🎓 *EduFlow AI* 봇에 오신 것을 환영합니다!\n\n인증 코드: \`${authCode}\`\n\n웹 대시보드의 Telegram 연동 페이지에서 위 코드를 입력하세요.`);
         } else if (text.startsWith('/조회')) {
             const studentName = text.replace('/조회', '').trim();
             await sendTelegramMessage(chatId, `📋 *${studentName || '학생'}* 최근 활동 요약\n\n• 물리 심화 탐구 보고서 초안 제출\n• 수학 경시대회 예선 통과\n• 물리 동아리 양자역학 세미나 발표`);

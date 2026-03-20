@@ -29,12 +29,12 @@ export async function sendApprovalRequestEmail(userEmail: string, userId: string
 
     try {
         const { data, error } = await resend.emails.send({
-            from: 'AdmitFlow AI <onboarding@resend.dev>', // 도메인 연결 전에는 이 주소만 사용 가능
+            from: 'EduFlow AI <onboarding@resend.dev>', // 도메인 연결 전에는 이 주소만 사용 가능
             to: adminEmail,
-            subject: `[AdmitFlow AI] 신규 가입 승인 요청: ${userName} (${userEmail})`,
+            subject: `[EduFlow AI] 신규 가입 승인 요청: ${userName} (${userEmail})`,
             html: `
                 <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
-                    <h2 style="color: #6366f1; margin-bottom: 20px;">AdmitFlow AI 가입 요청</h2>
+                    <h2 style="color: #6366f1; margin-bottom: 20px;">EduFlow AI 가입 요청</h2>
                     <p style="font-size: 16px; color: #374151; line-height: 1.6;">
                         새로운 컨설턴트 가입 신청이 도착했습니다. 내용을 확인하시고 승인 여부를 결정해 주세요.
                     </p>
@@ -56,7 +56,7 @@ export async function sendApprovalRequestEmail(userEmail: string, userId: string
                     </a>
                     
                     <p style="margin-top: 30px; font-size: 12px; color: #9ca3af; text-align: center;">
-                        본 메일은 AdmitFlow AI 시스템에서 자동으로 발송되었습니다.
+                        본 메일은 EduFlow AI 시스템에서 자동으로 발송되었습니다.
                     </p>
                 </div>
             `,

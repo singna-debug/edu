@@ -217,7 +217,7 @@ export default function ParentPortalPage({ params }: { params: Promise<{ token: 
 
                 {/* Footer */}
                 <div style={{ textAlign: 'center', padding: '32px 0', color: '#475569', fontSize: '0.75rem' }}>
-                    <p>AdmitFlow AI · 학부모 포털</p>
+                    <p>EduFlow AI · 학부모 포털</p>
                     <p style={{ marginTop: '4px' }}>본 페이지는 담당 컨설턴트가 업데이트한 내용이 실시간으로 반영됩니다.</p>
                 </div>
             </div>
