@@ -9,8 +9,21 @@ const firebaseConfig = {
     projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
 };
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+// 빌드 시 에러 방지를 위해 설정값이 있을 때만 초기화
+let app: any;
+try {
+    if (getApps().length > 0) {
+        app = getApp();
+    } else if (firebaseConfig.apiKey) {
+        app = initializeApp(firebaseConfig);
+    } else {
+        console.warn('[Firebase Client] Config skip: Building pages or development start...');
+    }
+} catch (err) {
+    console.warn('[Firebase Client] Init Error:', err);
+}
+
+const auth = app ? getAuth(app) : ({} as any);
+const db = app ? getFirestore(app) : ({} as any);
 
 export { app, auth, db };
