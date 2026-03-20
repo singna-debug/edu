@@ -14,7 +14,7 @@ export async function sendApprovalRequestEmail(userEmail: string, userId: string
     const adminEmail = process.env.ADMIN_EMAIL || userEmail;
     const resendApiKey = process.env.RESEND_API_KEY;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const secretToken = process.env.ADMIN_APPROVE_TOKEN || 'admitflow_secret_123';
+    const secretToken = process.env.ADMIN_APPROVE_TOKEN || 'eduflow_secret_123';
     
     // 승인 링크 생성
     const approveUrl = `${appUrl}/api/admin/approve?userId=${userId}&token=${secretToken}`;

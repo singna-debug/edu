@@ -1,7 +1,7 @@
 import { getAdminStorage } from './firebaseAdmin';
 
 function getBucket() {
-    const bucketName = process.env.GCS_BUCKET_NAME || 'admitflow-files';
+    const bucketName = process.env.GCS_BUCKET_NAME || 'eduflow-files';
     return getAdminStorage().bucket(bucketName);
 }
 
