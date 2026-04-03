@@ -1,0 +1,44 @@
+﻿??Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+??Compiled successfully in 46s
+  Running TypeScript ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/24) ...
+  Generating static pages using 7 workers (6/24) 
+  Generating static pages using 7 workers (12/24) 
+  Generating static pages using 7 workers (18/24) 
+??Generating static pages using 7 workers (24/24) in 780.3ms
+  Finalizing page optimization ...
+
+Route (app)
+????/
+????/_not-found
+??? /api/admin/approve
+??? /api/admin/request-approval
+??? /api/admission-benchmark
+??? /api/admission-benchmark/upload
+??? /api/analysis/search
+??? /api/analyze-image
+??? /api/drive
+??? /api/memos
+??? /api/notify/signup
+??? /api/students
+??? /api/telegram/webhook
+??? /api/upload
+????/dashboard
+????/dashboard/admission
+????/dashboard/analytics
+????/dashboard/reports
+????/dashboard/search
+????/dashboard/settings
+????/dashboard/students
+??? /dashboard/students/[id]
+????/dashboard/telegram
+??? /parent/[token]
+
+
+?? (Static)   prerendered as static content
+?  (Dynamic)  server-rendered on demand
+

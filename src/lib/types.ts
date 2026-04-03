@@ -4,8 +4,8 @@ export interface Student {
     name: string;
     grade: number; // 1, 2, 3
     school: string;
-    classNumber?: number;        // 반
-    studentNumber?: number;      // 번호
+    classNumber?: number | null;        // 반
+    studentNumber?: number | null;      // 번호
     teacherMemo?: string;        // 담임교사 메모 (자유 형식)
     studentMemo?: string;        // 학생 메모 (이름 하단 노출)
     timetableImageUrl?: string;  // 시간표 이미지 URL/data URL

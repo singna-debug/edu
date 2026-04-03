@@ -7,6 +7,9 @@ const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
 // 빌드 시 에러 방지를 위해 설정값이 있을 때만 초기화
@@ -23,7 +26,14 @@ try {
     console.warn('[Firebase Client] Init Error:', err);
 }
 
-const auth = app ? getAuth(app) : ({} as any);
-const db = app ? getFirestore(app) : ({} as any);
+const auth = app ? getAuth(app) : ({ 
+    onAuthStateChanged: () => (() => {}),
+    signOut: async () => {},
+    currentUser: null
+} as any);
+const db = app ? getFirestore(app) : ({
+    collection: () => ({ doc: () => ({}) }),
+    doc: () => ({})
+} as any);
 
 export { app, auth, db };

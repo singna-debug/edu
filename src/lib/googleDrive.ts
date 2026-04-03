@@ -50,34 +50,34 @@ async function getDriveClient(accessToken?: string, refreshToken?: string, consu
         }
     });
 
-    const isRealGoogleAccessToken = accessToken && accessToken.startsWith('ya29');
-    const isRealGoogleRefreshToken = refreshToken && refreshToken.startsWith('1/');
+    const isRealGoogleAccessToken = accessToken && accessToken.length > 10;
+    const isRealGoogleRefreshToken = refreshToken && refreshToken.length > 10;
     
     if (isRealGoogleRefreshToken) {
         try {
-            console.log(`[Drive] Refreshing token for ${consultantId}...`);
+            console.log(`[Drive] Refreshing token for consultant ${consultantId}... (Prefix: ${refreshToken.substring(0, 10)})`);
+            oauth2Client.setCredentials({ refresh_token: refreshToken });
             const { token } = await oauth2Client.getAccessToken();
             if (token) {
                 oauth2Client.setCredentials({ access_token: token });
-                console.log(`[Drive] Token refresh success for ${consultantId}`);
             }
         } catch (err: any) {
             console.error(`[Drive] Refresh Failed for ${consultantId}:`, err.message);
-            if (!isRealGoogleAccessToken) throw new Error(`Authentication Expired: ${err.message}`);
         }
-    } else {
-        if (!isRealGoogleAccessToken) {
-            const envRefreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
-            if (envRefreshToken && envRefreshToken.startsWith('1/')) {
-                console.log(`[Drive] Using Global Fallback Refresh Token (Both DB tokens invalid/wrong type) for ${consultantId}`);
-                oauth2Client.setCredentials({ refresh_token: envRefreshToken });
+    } else if (!isRealGoogleAccessToken) {
+        // [핵심 수정] 개인 토큰이 아예 없거나 유효하지 않으면 서버 전역 토큰(폴백) 사용
+        const envRefreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+        if (envRefreshToken && envRefreshToken.startsWith('1/')) {
+            console.log(`[Drive] Using Global Fallback Refresh Token (Consultant: ${consultantId})`);
+            oauth2Client.setCredentials({ refresh_token: envRefreshToken });
+            try {
                 const { token } = await oauth2Client.getAccessToken();
                 if (token) oauth2Client.setCredentials({ access_token: token });
-            } else {
-                throw new Error('No valid Google Drive tokens found in DB (Wrong type like AMf/eyJ). Please Reconnect Google in Settings.');
+            } catch (err: any) {
+                console.error('[Drive] Global Fallback Token also failed:', err.message);
             }
         } else {
-            console.log(`[Drive] Using Google Access Token Only for ${consultantId} (No valid Refresh Token)`);
+            console.error('[Drive] No valid tokens found in DB or ENV. Consultant:', consultantId);
         }
     }
 
@@ -202,9 +202,14 @@ export const driveService = {
     async uploadFile(name: string, buffer: Buffer, contentType: string, tokens: DriveTokens, consultantId?: string, parentId?: string) {
         let drive;
         try {
-            console.log(`[Drive] Starting upload for ${consultantId}. Tokens present: Acc(${!!tokens.accessToken}), Ref(${!!tokens.refreshToken})`);
+            const { PassThrough } = require('stream');
+            console.log(`[Drive] Preparing Upload: ${name}, Size: ${buffer.length} bytes, Parent: ${parentId || 'root'}`);
             drive = await getDriveClient(tokens.accessToken, tokens.refreshToken, consultantId);
             
+            // 스트림 생성 및 버퍼 주입
+            const bufferStream = new PassThrough();
+            bufferStream.end(buffer);
+
             const file = await drive.files.create({
                 requestBody: {
                     name: name,
@@ -212,13 +217,15 @@ export const driveService = {
                 },
                 media: {
                     mimeType: contentType,
-                    body: Readable.from(buffer),
+                    body: bufferStream,
                 },
                 fields: 'id',
             });
+            
+            console.log(`[Drive] SDK Upload Success: ${file.data.id}`);
             return file.data.id;
         } catch (err: any) {
-            console.error('[Drive] Upload Error:', err.message);
+            console.error('[Drive] SDK Upload Failed, attempting REST fallback:', err.message);
             
             // REST Fallback (Optional, but simplified)
             if (tokens.accessToken && tokens.accessToken.length > 10) {

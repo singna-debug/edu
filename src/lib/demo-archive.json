@@ -1,0 +1,12 @@
+{
+  "demoStudents": {
+    "stu-001": { "id": "stu-001", "name": "김민준", "grade": 2, "school": "서울과학고등학교", "classNumber": 3, "studentNumber": 12, "teacherMemo": "", "targetUniv": "", "targetMajor": "", "parentPortalToken": "demo-token-001", "consultantId": "demo", "createdAt": "2025-03-15", "updatedAt": "2026-02-17" },
+    "stu-002": { "id": "stu-002", "name": "이서연", "grade": 3, "school": "대원외국어고등학교", "classNumber": 1, "studentNumber": 5, "teacherMemo": "", "targetUniv": "", "targetMajor": "", "parentPortalToken": "demo-token-002", "consultantId": "demo", "createdAt": "2025-06-01", "updatedAt": "2026-02-16" },
+    "stu-003": { "id": "stu-003", "name": "박지호", "grade": 1, "school": "한영중학교 (예비고1)", "targetUniv": "", "targetMajor": "", "parentPortalToken": "demo-token-003", "consultantId": "demo", "createdAt": "2026-01-10", "updatedAt": "2026-02-15" },
+    "stu-004": { "id": "stu-004", "name": "최수아", "grade": 3, "school": "민족사관고등학교", "classNumber": 2, "studentNumber": 8, "teacherMemo": "", "targetUniv": "", "targetMajor": "", "parentPortalToken": "demo-token-004", "consultantId": "demo", "createdAt": "2024-09-20", "updatedAt": "2026-02-14" }
+  },
+  "initialMemos": [],
+  "initialFolders": [],
+  "initialFiles": [],
+  "initialGrades": []
+}

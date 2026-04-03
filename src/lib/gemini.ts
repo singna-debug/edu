@@ -39,7 +39,7 @@ function getGenAI(): GoogleGenerativeAI {
 
 export function getGeminiModel(): GenerativeModel {
     if (!model) {
-        model = getGenAI().getGenerativeModel({ model: 'gemini-2.0-flash' });
+        model = getGenAI().getGenerativeModel({ model: 'gemini-2.5-flash' });
     }
     return model;
 }
@@ -66,7 +66,7 @@ export async function embedText(text: string): Promise<number[]> {
 export async function generateText(prompt: string, systemInstruction?: string): Promise<string> {
     const m = systemInstruction
         ? getGenAI().getGenerativeModel({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-2.5-flash',
             systemInstruction,
         })
         : getGeminiModel();
@@ -80,7 +80,7 @@ export async function generateText(prompt: string, systemInstruction?: string): 
  */
 export async function generateJSON<T>(prompt: string, systemInstruction?: string): Promise<T> {
     const m = getGenAI().getGenerativeModel({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         systemInstruction,
         generationConfig: {
             responseMimeType: 'application/json',
@@ -105,16 +105,17 @@ export async function autoTagContent(text: string): Promise<{
     tags: string[];
     summary: string;
 }> {
-    const prompt = `다음 학생 활동 텍스트를 분석하여 JSON으로 응답하시오.
+    const prompt = `다음 학생 활동 텍스트를 분석하여 JSON으로 구체적으로 응답하시오.
 
 분석할 텍스트:
-${text.substring(0, 3000)}
+${text.substring(0, 4000)}
 
-응답 형식:
+응답 형식 및 분석 지침:
 {
-  "category": "수행평가 | 자율활동 | 진로활동 | 봉사활동 | 동아리 | 성적표 | 기타" 중 하나,
-  "tags": ["관련 키워드 태그 배열, 최대 5개"],
-  "summary": "100자 이내 요약문"
+  "category": "수행평가 | 자율활동 | 진로활동 | 봉사활동 | 동아리 | 성적표 | 기타" 중 하나로 분류,
+  "tags": ["가장 중요한 핵심 키워드 5개 배열"],
+  "summary": "학생의 구체적인 활동 내용, 탐구 주제, 결과 및 배운 점을 포함하여 3~5문장으로 상세히 요약하시오 (300자 내외). 
+              단순히 파일 형식을 언급하기보다 '무엇을 위해', '어떤 주제로', '어떤 역량을 발휘했는지'를 전문적으로 서술하시오."
 }`;
 
     return generateJSON(prompt);
@@ -178,7 +179,7 @@ export async function analyzeImage<T>(
     prompt: string
 ): Promise<T> {
     const m = getGenAI().getGenerativeModel({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         generationConfig: {
             responseMimeType: 'application/json',
         },

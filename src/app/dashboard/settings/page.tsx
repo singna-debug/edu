@@ -113,21 +113,23 @@ export default function SettingsPage() {
             const credential = GoogleAuthProvider.credentialFromResult(result);
 
             if (credential?.accessToken) {
-                // IMPORTANT: Firebase level refreshToken is NOT the Google OAuth Refresh Token.
-                // We MUST use oauthRefreshToken (only available on first login or with prompt: 'consent').
+                // [핵심 수정] Firebase Auth의 ID 토큰이 아니라, Google OAuth용 Access/Refresh Token을 타겟팅
                 const tokenResponse = (result as any)._tokenResponse;
-                const googleRefreshToken = tokenResponse?.oauthRefreshToken || undefined;
+                
+                // Google OAuth2용 실제 토큰들
+                const googleAccessToken = credential.accessToken; // 보통 'ya29.'으로 시작
+                const googleRefreshToken = tokenResponse?.oauthRefreshToken; // '1/'로 시작
                 
                 if (!googleRefreshToken) {
-                    console.warn("[Auth] No Google Refresh Token found in response. Drive integration may expire.");
+                    console.warn("[Auth] No Refresh Token. Ensure 'prompt: consent' is active.");
                 }
 
                 await consultantService.saveTokens(user.uid, {
-                    google_access_token: credential.accessToken,
-                    google_refresh_token: googleRefreshToken,
+                    google_access_token: googleAccessToken,
+                    google_refresh_token: googleRefreshToken || '', // 명시적 빈 문자열 처리
                     google_token_expiry: Date.now() + 3500 * 1000
                 });
-                showToast('✅ 구글 계정 연동이 갱신되었습니다.');
+                showToast('✅ 구글 연동 정보가 정식 갱신되었습니다. 이제 폴더 생성이 가능합니다.');
             }
         } catch (error: any) {
             console.error('Re-auth error:', error);

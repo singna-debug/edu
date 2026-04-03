@@ -12,7 +12,7 @@ import {
     serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Student, Memo, GradeRecord, StudentFile, BookRecord, FileFolder } from '../types';
+import type { Student, Memo, GradeRecord, StudentFile, BookRecord, FileFolder, SubjectResource } from '../types';
 
 const STUDENTS_COLLECTION = 'students';
 const MEMOS_COLLECTION = 'memos';
@@ -36,6 +36,18 @@ export const studentService = {
         const snapshot = await getDoc(docRef);
         if (snapshot.exists()) {
             return { id: snapshot.id, ...snapshot.data() } as Student;
+        }
+        return null;
+    },
+
+    async getStudentByPortalToken(token: string): Promise<Student | null> {
+        const q = query(
+            collection(db, STUDENTS_COLLECTION),
+            where('parentPortalToken', '==', token)
+        );
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+            return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Student;
         }
         return null;
     },
@@ -191,5 +203,24 @@ export const studentService = {
     
     async deleteBook(id: string): Promise<void> {
         await deleteDoc(doc(db, BOOKS_COLLECTION, id));
+    },
+
+    // === Resources ===
+    async getResources(studentId: string): Promise<SubjectResource[]> {
+        const q = query(
+            collection(db, 'resources'),
+            where('studentId', '==', studentId)
+        );
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SubjectResource));
+    },
+
+    async addResource(resource: Omit<SubjectResource, 'id'>): Promise<string> {
+        const docRef = await addDoc(collection(db, 'resources'), resource);
+        return docRef.id;
+    },
+
+    async deleteResource(id: string): Promise<void> {
+        await deleteDoc(doc(db, 'resources', id));
     }
 };

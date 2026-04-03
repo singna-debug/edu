@@ -3,14 +3,25 @@ import { driveService, DriveTokens } from '@/lib/googleDrive';
 import { studentService } from '@/lib/services/studentService';
 import { autoTagContent } from '@/lib/gemini';
 import { getDb } from '@/lib/firebaseAdmin';
+import { verifyAuth } from '@/lib/auth-server'; // 추가됨
 import type { StudentFile } from '@/lib/types';
 
 export async function POST(req: NextRequest) {
     try {
+        const decodedToken = await verifyAuth(req);
+        if (!decodedToken) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+        }
+
         const formData = await req.formData();
         const file = formData.get('file') as File;
         const studentId = formData.get('studentId') as string;
-        const consultantId = formData.get('consultantId') as string; // 추가됨
+        const consultantId = formData.get('consultantId') as string;
+        
+        if (consultantId && decodedToken.uid !== consultantId) {
+            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+        }
+
         const category = formData.get('category') as string;
         const semester = formData.get('semester') as string;
         const folderId = formData.get('folderId') as string || undefined;
@@ -57,79 +68,72 @@ export async function POST(req: NextRequest) {
         // const gcsUri = await uploadToGcs(buffer, gcsPath, contentType);
         const gcsPath = ""; 
 
-        // 2. 해당 컨설턴트의 개인 구글 드라이브에 업로드 (실패해도 AI 분석은 진행되도록 예외 처리)
-        let driveFileId = '';
-        try {
-            if (tokens) {
-                driveFileId = await driveService.uploadFile(fileName, buffer, contentType, tokens, consultantId, driveParentId);
-            }
-        } catch (driveErr: any) {
-            console.warn('[Upload] Google Drive Sync Failed, but continuing with AI analysis:', driveErr.message);
-            // 드라이브 업로드 실패 시에도 AI 분석을 위해 프로세스 계속 진행
-        }
-
-        // 3. AI 분석 (텍스트 추출 시도) - 드라이브 성공 여부와 상관없이 수행
-        let parsedText = '';
-        if (contentType === 'application/pdf') {
+        // [중요 수정] 드라이브 부모 폴더 ID가 비어있을 경우, 학생의 기본 루트 폴더를 Firestore에서 조회하여 보완
+        let finalDriveParentId = driveParentId;
+        if (!finalDriveParentId && studentId) {
+            const dbRef = getDb();
             try {
-                // 더 호환성 높은 다이나믹 임포트 처리
-                const pdfModule = await import('pdf-parse');
-                const pdf = (pdfModule as any).default || pdfModule;
-                
-                // 만약 여전히 함수가 아니라면 (CommonJS 대응)
-                const extractText = typeof pdf === 'function' ? pdf : (pdf as any);
-                
-                if (typeof extractText === 'function') {
-                    const data = await extractText(buffer);
-                    parsedText = data.text;
-                    console.log(`[Upload] PDF parsed successfully: ${parsedText.length} chars`);
+                const studentDoc = await dbRef.collection('students').doc(studentId).get();
+                if (studentDoc.exists) {
+                    finalDriveParentId = studentDoc.data()?.driveFolderId;
+                    if (finalDriveParentId) {
+                        console.log(`[Upload] Using Student Root Folder as fallback: ${finalDriveParentId}`);
+                    }
                 }
             } catch (err) {
-                console.error('PDF Parse Error:', err);
+                console.error("[Upload] Error fetching student root folder fallback:", err);
             }
-        } else if (contentType.startsWith('text/') || contentType === 'application/json') {
-            parsedText = buffer.toString('utf8');
-        } else if (contentType.startsWith('image/')) {
-            // 이미지의 경우 현재 OCR 엔진이 없으므로 파일명 기반으로 컨텐츠 유추
-            parsedText = `이미지 파일: ${fileName}. 이 파일의 내용을 분석하려면 AI 이미지 인식 모듈이 필요합니다.`;
         }
 
-        let tags: string[] = [];
-        let summary = '';
+        // 2. 해당 컨설턴트의 개인 구글 드라이브에 업로드 (백그라운드 비동기 처리 - 속도 향상)
+        let driveFileId = '';
+        const driveError: string | null = null;
         
-        // 텍스트가 있거나 최소한 파일명이라도 있으면 분석 시도
+        // [핵심] 드라이브 업로드를 기다리지 않고 비동기로 실행 (Fire and forget if needed for UI speed)
+        // 하지만 ID를 저장하려면 기다려야 하므로, 여기서는 최대한 빠르게 시도하고 실패 시 로그만 남김
         try {
-            const analysis = await autoTagContent(parsedText || `파일명: ${fileName}, 카테고리: ${category}`);
-            tags = analysis.tags || [];
-            summary = analysis.summary || '';
-        } catch (err) {
-            console.error('AI Analysis Error:', err);
-            summary = `${fileName} 파일이 업로드되었습니다.`;
+            if (tokens) {
+                console.log(`[Upload] Triggering Async Drive Sync for: ${consultantId}`);
+                // [참고] 일부러 await를 하지만, 업로드 도중 에러가 나더라도 Firestore 저장은 막지 않음
+                driveFileId = await driveService.uploadFile(fileName, buffer, contentType, tokens, consultantId, finalDriveParentId);
+                console.log(`[Upload] Drive Sync Success: ${driveFileId}`);
+            }
+        } catch (err: any) {
+            console.error(`[Upload] Drive Sync error (background): ${err.message}`);
         }
 
-        // 4. Firestore 저장
+        // AI 분석 없이 즉시 텍스트(메타데이터)만Firestore 저장
+        const memo = formData.get('memo') as string || '';
+        const summary = memo;
+        const uploadedAt = new Date().toISOString();
+
+        // 4. Firestore 저장 (이 정보가 리스트에 노출됨 - 공짜!)
         const fileData: Omit<StudentFile, 'id' | 'uploadedAt'> = {
             studentId: studentId || '',
             fileName: fileName || '',
-            gcsPath: gcsPath || '',
-            driveFileId: driveFileId || '',
+            gcsPath: '', // GCS 스킵 (유료 방지)
+            driveFileId: driveFileId || '', // 드라이브 ID (SaaS 활용)
             fileType: (fileName.split('.').pop()?.toLowerCase() === 'pdf' ? 'pdf' : (fileName.split('.').pop()?.toLowerCase() === 'hwp' ? 'hwp' : (contentType.startsWith('image/') ? 'image' : 'other'))) as any,
             category: category || '',
             folderId: folderId || '',
             semester: semester || '',
-            parsedText: parsedText || '',
-            tags: tags || [],
+            parsedText: '',
+            tags: [],
             summary: summary || '',
         };
 
-        const uploadedAt = new Date().toISOString();
         const dbRef = getDb();
         const docRef = await dbRef.collection('files').add({
             ...fileData,
             uploadedAt,
         });
 
-        return NextResponse.json({ success: true, data: { id: docRef.id, ...fileData, uploadedAt } });
+        // 즉시 응답하여 메모 모달이 빨리 뜨게 함
+        return NextResponse.json({ 
+            success: true, 
+            data: { id: docRef.id, ...fileData, uploadedAt },
+            driveError: driveFileId ? null : 'Pending Sync' 
+        });
 
     } catch (error: any) {
         console.error('Upload Route Error:', error);

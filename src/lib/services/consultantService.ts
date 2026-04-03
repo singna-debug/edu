@@ -10,7 +10,7 @@ import {
     serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { sendApprovalRequestEmail } from '../email';
+// Email sends are now handled via API to avoid bundling Node.js libraries on the client
 
 export interface ConsultantData {
     id: string;
@@ -58,8 +58,16 @@ export const consultantService = {
         // [추가] 신규 가입 시 관리자에게 승인 요청 이메일 발송
         if (isNewUser) {
             try {
-                // 비동기로 발송하여 가입 처리 속도에 영향을 주지 않음
-                sendApprovalRequestEmail(data.email || 'unknown', userId, data.display_name || '신입 사용자');
+                // 비동기로 API 호출하여 가입 처리 속도에 영향을 주지 않음
+                fetch('/api/admin/request-approval', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        userEmail: data.email || 'unknown',
+                        userName: data.display_name || '신입 사용자'
+                    })
+                }).catch(err => console.error('[Admin] Approval Email API Call Failed:', err));
             } catch (err) {
                 console.error('[Admin] Approval Email Trigger Failed:', err);
             }

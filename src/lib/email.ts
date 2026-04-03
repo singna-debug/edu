@@ -1,3 +1,4 @@
+import 'server-only';
 import nodemailer from 'nodemailer';
 
 /**
@@ -20,7 +21,7 @@ const getTransporter = () => {
  */
 export async function sendApprovalRequestEmail(userEmail: string, userId: string, userName: string) {
     const adminEmail = process.env.ADMIN_EMAIL || userEmail;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3002';
     const secretToken = process.env.ADMIN_APPROVE_TOKEN || 'eduflow_secret_123';
     
     // 승인 링크 생성
@@ -89,4 +90,3 @@ export async function sendApprovalRequestEmail(userEmail: string, userId: string
         return { success: false, error: err };
     }
 }
-

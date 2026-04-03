@@ -11,17 +11,9 @@ export default function LoginPage() {
   const [isApproved, setIsApproved] = useState<boolean | null>(null); // null: 로그인 전, false: 승인 대기, true: 승인 완료
   const [userEmail, setUserEmailState] = useState<string>('');
 
-  const handleLogin = async (mode: 'demo' | 'user') => {
+  const handleLogin = async () => {
     setIsLoading(true);
     
-    if (mode === 'demo') {
-      localStorage.setItem('authMode', 'demo');
-      localStorage.setItem('userName', '데모 컨설턴트');
-      localStorage.setItem('userEmail', 'demo@eduflow.ai');
-      setTimeout(() => router.push('/dashboard'), 800);
-      return;
-    }
-
     // Google Login (Real User)
     try {
       const { consultantService } = await import('@/lib/services/consultantService');
@@ -171,7 +163,7 @@ export default function LoginPage() {
               <>
                 <button
                   className="btn btn-primary w-full btn-lg"
-                  onClick={() => handleLogin('user')}
+                  onClick={() => handleLogin()}
                   disabled={isLoading}
                   style={{ gap: '10px', height: '54px', fontSize: '1.05rem', marginTop: 'var(--space-md)' }}
                 >
@@ -196,17 +188,6 @@ export default function LoginPage() {
                   </p>
                 </div>
 
-                <div className="login-divider" style={{ margin: 'var(--space-lg) 0' }}>
-                  <span>또는</span>
-                </div>
-
-                <button
-                  className="btn btn-ghost w-full"
-                  onClick={() => handleLogin('demo')}
-                  style={{ color: 'var(--accent-400)', border: '1px solid rgba(139, 92, 246, 0.2)' }}
-                >
-                  🚀 데모 모드로 둘러보기
-                </button>
               </>
             )}
           </div>

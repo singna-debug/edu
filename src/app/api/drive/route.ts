@@ -39,34 +39,57 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        if (!tokens) {
-            return NextResponse.json({ success: false, error: '구글 드라이브 인증 정보가 유효하지 않습니다.' }, { status: 401 });
-        }
+        // [수정] tokens가 없어도 getDriveClient 내부에서 전역 토큰(폴백)을 사용하므로 통과시킴
+        const tokensToPass = tokens || { accessToken: '', refreshToken: '' };
+
+        const GLOBAL_ROOT_NAME = 'EduFlow_Files';
 
         switch (action) {
             case 'createFolder':
-                const newFolderId = await driveService.createFolder(name, tokens, consultantId, parentId);
-                return NextResponse.json({ success: true, id: newFolderId });
+                // 1. 부모 ID 정제
+                let targetParentId = (parentId === 'null' || parentId === 'undefined' || !parentId) ? null : parentId;
+                
+                if (!targetParentId) {
+                    // 부모가 없으면 EduFlow_Files를 찾거나 생성해서 거기다 넣음
+                    targetParentId = (await driveService.getOrCreateFolder(GLOBAL_ROOT_NAME, tokensToPass, consultantId, 'root')) as string;
+                }
+                
+                // getOrCreateFolder를 사용하여 중복 생성을 방지하면서 폴더 생성/ID 반환
+                const createdId = await driveService.getOrCreateFolder(name, tokensToPass, consultantId, targetParentId);
+                return NextResponse.json({ success: true, id: createdId });
             case 'getOrCreatePath':
                 const { pathNames } = body;
                 if (!pathNames || !Array.isArray(pathNames)) {
                     return NextResponse.json({ success: false, error: 'Path names required' }, { status: 400 });
                 }
                 
-                let currentParentId = parentId; // Initial parentId (usually studentRootId)
+                // 1. 부모 ID 정제 (문자열 "null", "undefined" 등 방지)
+                const safeParentId = (parentId === 'null' || parentId === 'undefined' || !parentId) ? null : parentId;
+                
+                let currentParentId: string;
+                if (safeParentId) {
+                    currentParentId = safeParentId;
+                } else {
+                    // 학생 루트가 없으면 EduFlow_Files부터 새로 찾음
+                    currentParentId = (await driveService.getOrCreateFolder(GLOBAL_ROOT_NAME, tokensToPass, consultantId, 'root')) as string;
+                    console.warn(`[Drive] No parentId provided, starting from GLOBAL_ROOT: ${currentParentId}`);
+                }
+                
+                // 2. 나머지 경로 탐색/생성 
+                console.log(`[Drive] Nesting Path: ${pathNames.join(' > ')} starting from ${currentParentId}`);
                 for (const folderName of pathNames) {
-                    currentParentId = await driveService.getOrCreateFolder(folderName, tokens, consultantId, currentParentId);
+                    currentParentId = (await driveService.getOrCreateFolder(folderName, tokensToPass, consultantId, currentParentId)) as string;
                 }
                 return NextResponse.json({ success: true, id: currentParentId });
             case 'delete':
-                if (fileId) await driveService.deleteFile(fileId, tokens, consultantId);
+                if (fileId) await driveService.deleteFile(fileId, tokensToPass, consultantId);
                 return NextResponse.json({ success: true });
             case 'rename':
-                if (fileId && name) await driveService.renameFile(fileId, name, tokens, consultantId);
+                if (fileId && name) await driveService.renameFile(fileId, name, tokensToPass, consultantId);
                 return NextResponse.json({ success: true });
             case 'moveFolder':
                 if (fileId && newParentId) {
-                    await driveService.moveFile(fileId, oldParentId, newParentId, tokens, consultantId);
+                    await driveService.moveFile(fileId, oldParentId, newParentId, tokensToPass, consultantId);
                 }
                 return NextResponse.json({ success: true });
             default:

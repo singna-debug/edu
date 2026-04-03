@@ -7,13 +7,6 @@ import { auth } from '@/lib/firebase';
 import { studentService } from '@/lib/services/studentService';
 import type { Student } from '@/lib/types';
 
-const demoStudents: Student[] = [
-    { id: 'stu-001', name: '김민준', grade: 2, school: '서울과학고등학교', targetUniv: '서울대학교', targetMajor: '물리학과', consultantId: 'demo', createdAt: '2025-03-15', updatedAt: '2026-02-17' },
-    { id: 'stu-002', name: '이서연', grade: 3, school: '대원외국어고등학교', targetUniv: '연세대학교', targetMajor: '국제학과', consultantId: 'demo', createdAt: '2025-06-01', updatedAt: '2026-02-16' },
-    { id: 'stu-003', name: '박지호', grade: 1, school: '한영중학교 (예비고1)', targetUniv: '미정', targetMajor: '공학 계열', consultantId: 'demo', createdAt: '2026-01-10', updatedAt: '2026-02-15' },
-    { id: 'stu-004', name: '최수아', grade: 3, school: '민족사관고등학교', targetUniv: 'KAIST', targetMajor: '전산학부', consultantId: 'demo', createdAt: '2024-09-20', updatedAt: '2026-02-14' },
-];
-
 const avatarColors = [
     'linear-gradient(135deg, #6366f1, #818cf8)',
     'linear-gradient(135deg, #10b981, #34d399)',
@@ -29,7 +22,6 @@ export default function StudentsPage() {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [authMode, setAuthMode] = useState<'demo' | 'user'>('user');
     const [userRole, setUserRole] = useState<'consultant' | 'manager'>('consultant');
     const [parentId, setParentId] = useState<string | null>(null);
     const [newStudent, setNewStudent] = useState({
@@ -46,17 +38,11 @@ export default function StudentsPage() {
         setTimeout(() => setToast(null), 3000);
     };
 
-    const fetchStudents = useCallback(async (mode: string) => {
-        if (mode === 'demo') {
-            setStudents(demoStudents);
-            setIsLoaded(true);
-            setLoading(false);
-            return;
-        }
-
-        const userId = localStorage.getItem('userId');
+    const fetchStudents = useCallback(async () => {
         const role = localStorage.getItem('role') as 'consultant' | 'manager' || 'consultant';
         const pId = localStorage.getItem('parentId');
+        const userId = localStorage.getItem('userId') || auth.currentUser?.uid;
+        
         setUserRole(role);
         setParentId(pId);
 
@@ -71,6 +57,7 @@ export default function StudentsPage() {
                 showToast("학생 목록을 불러오는데 실패했습니다.");
             }
         } else {
+            console.warn("[StudentsList] No consultant ID available for fetch");
             setStudents([]);
         }
         setIsLoaded(true);
@@ -78,11 +65,8 @@ export default function StudentsPage() {
     }, []);
 
     useEffect(() => {
-        const mode = (localStorage.getItem('authMode') as 'demo' | 'user') || 'user';
-        setAuthMode(mode);
-        
         const unsubscribe = auth.onAuthStateChanged((user: any) => {
-            fetchStudents(mode);
+            fetchStudents();
         });
 
         return () => unsubscribe();
@@ -101,46 +85,69 @@ export default function StudentsPage() {
             return;
         }
 
-        const userId = localStorage.getItem('userId');
-        const targetConsultantId = parentId || userId || 'demo';
+        const userId = localStorage.getItem('userId') || auth.currentUser?.uid;
+        const targetConsultantId = parentId || userId;
+
+        if (!targetConsultantId) {
+            showToast('로그인 정보가 없습니다. 다시 시도해주세요.');
+            return;
+        }
 
         try {
+            showToast('⏳ 학생 정보를 등록 중입니다...');
+            
+            // 1. 드라이브 폴더 선제적 생성 시도
+            let driveFolderId = '';
+            try {
+                const idToken = await auth.currentUser?.getIdToken();
+                const driveResp = await fetch('/api/drive', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({ 
+                        action: 'createFolder', 
+                        name: `${newStudent.name}_${newStudent.school}`, 
+                        consultantId: targetConsultantId 
+                    })
+                });
+                const driveResult = await driveResp.json();
+                if (driveResult.success) {
+                    driveFolderId = driveResult.id;
+                }
+            } catch (err) {
+                console.error("[Drive] Initial folder creation failed:", err);
+                // 드라이브 생성 실패해도 학생 등록은 진행
+            }
+
             const studentData: Omit<Student, 'id' | 'createdAt' | 'updatedAt'> = {
                 name: newStudent.name,
                 grade: newStudent.grade,
                 school: newStudent.school,
-                classNumber: newStudent.classNumber ? Number(newStudent.classNumber) : undefined,
-                studentNumber: newStudent.studentNumber ? Number(newStudent.studentNumber) : undefined,
+                classNumber: newStudent.classNumber ? Number(newStudent.classNumber) : null,
+                studentNumber: newStudent.studentNumber ? Number(newStudent.studentNumber) : null,
                 teacherMemo: newStudent.teacherMemo || '',
                 studentMemo: newStudent.studentMemo || '',
                 targetUniv: '미정',
                 targetMajor: '미정',
                 parentPortalToken: `token-${Date.now()}`,
                 consultantId: targetConsultantId,
+                driveFolderId: driveFolderId || "" // undefined 방지 (빈 문자열 저장)
             };
 
-            if (authMode === 'demo') {
-                const demoStudent: Student = {
-                    ...studentData,
-                    id: `stu-${Date.now()}`,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                };
-                setStudents([demoStudent, ...students]);
-            } else {
-                const newId = await studentService.addStudent(studentData);
-                const fullStudent: Student = {
-                    ...studentData,
-                    id: newId,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                };
-                setStudents([fullStudent, ...students]);
-            }
+            const newId = await studentService.addStudent(studentData);
+            const fullStudent: Student = {
+                ...studentData,
+                id: newId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            };
+            setStudents([fullStudent, ...students]);
 
             setShowModal(false);
             setNewStudent({ name: '', grade: 1, school: '', classNumber: '', studentNumber: '', teacherMemo: '', studentMemo: '' });
-            showToast(`${newStudent.name} 학생이 등록되었습니다.`);
+            showToast(`✅ ${newStudent.name} 학생이 등록되었습니다.${driveFolderId ? ' (드라이브 연동 완료)' : ''}`);
         } catch (error) {
             console.error("Error adding student:", error);
             showToast("학생 등록 중 오류가 발생했습니다.");
@@ -163,16 +170,51 @@ export default function StudentsPage() {
         if (!deleteTarget) return;
         const { id: studentId, name: studentName } = deleteTarget;
         setShowDeleteModal(false);
+        showToast(`🗑️ ${studentName} 학생 정보를 삭제 중입니다...`);
+
+        const targetStudent = students.find(s => s.id === studentId);
+        const userId = localStorage.getItem('userId') || auth.currentUser?.uid;
+        const cId = parentId || userId;
 
         try {
-            if (authMode !== 'demo') {
-                await studentService.deleteStudent(studentId);
+            // 1. Google Drive Sync Delete (폴더 강제 삭제)
+            let driveDeleted = false;
+            if (targetStudent?.driveFolderId && cId) {
+                try {
+                    const idToken = await auth.currentUser?.getIdToken();
+                    const driveResp = await fetch('/api/drive', {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}`
+                        },
+                        body: JSON.stringify({ 
+                            action: 'delete', 
+                            fileId: targetStudent.driveFolderId, 
+                            consultantId: cId 
+                        })
+                    });
+                    const driveResult = await driveResp.json();
+                    if (driveResult.success) {
+                        driveDeleted = true;
+                    }
+                } catch (driveErr) {
+                    console.error("[Drive] Request failed during deletion:", driveErr);
+                }
             }
+
+            // 2. Firestore Delete
+            await studentService.deleteStudent(studentId);
             setStudents(prev => prev.filter(s => s.id !== studentId));
-            showToast(`${studentName} 학생이 삭제되었습니다.`);
+            
+            if (targetStudent?.driveFolderId && !driveDeleted) {
+                showToast(`✅ 학생 정보는 삭제되었으나, 드라이브 폴더 삭제에 실패했습니다. (토큰 확인 필요)`);
+            } else {
+                showToast(`✅ ${studentName} 학생과 연동된 모든 데이터가 영구 삭제되었습니다.`);
+            }
         } catch (error) {
             console.error("Error deleting student:", error);
-            showToast("학생 삭제 중 오류가 발생했습니다.");
+            showToast("❌ 학생 삭제 중 오류가 발생했습니다.");
         } finally {
             setDeleteTarget(null);
         }

@@ -38,9 +38,10 @@ import {
     Trash2,
     AlertTriangle,
     Pencil,
-    Loader2
+    Loader2,
+    ExternalLink
 } from 'lucide-react';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { studentService } from '@/lib/services/studentService';
 import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore, BookRecord, SubjectResource, FileFolder, FileCategory } from '@/lib/types';
 import { FILE_CATEGORIES } from '@/lib/types';
@@ -50,38 +51,6 @@ ChartJS.register(
     RadialLinearScale, Filler, Title, Tooltip, Legend, ArcElement
 );
 
-// ============ DEMO DATA ============
-
-const demoStudents: Record<string, Student> = {
-    'stu-001': { id: 'stu-001', name: '김민준', grade: 2, school: '서울과학고등학교', classNumber: 3, studentNumber: 12, teacherMemo: '', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-001', consultantId: 'demo', createdAt: '2025-03-15', updatedAt: '2026-02-17' },
-    'stu-002': { id: 'stu-002', name: '이서연', grade: 3, school: '대원외국어고등학교', classNumber: 1, studentNumber: 5, teacherMemo: '', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-002', consultantId: 'demo', createdAt: '2025-06-01', updatedAt: '2026-02-16' },
-    'stu-003': { id: 'stu-003', name: '박지호', grade: 1, school: '한영중학교 (예비고1)', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-003', consultantId: 'demo', createdAt: '2026-01-10', updatedAt: '2026-02-15' },
-    'stu-004': { id: 'stu-004', name: '최수아', grade: 3, school: '민족사관고등학교', classNumber: 2, studentNumber: 8, teacherMemo: '', targetUniv: '', targetMajor: '', parentPortalToken: 'demo-token-004', consultantId: 'demo', createdAt: '2024-09-20', updatedAt: '2026-02-14' },
-};
-
-const initialMemos: Memo[] = [];
-
-const initialFolders: FileFolder[] = [];
-
-const initialFiles: StudentFile[] = [];
-
-const initialGrades: GradeRecord[] = [];
-
-// (Unused demo data removed)
-
-
-const emptyCompetency: CompetencyScore = {
-    학업역량: 0,
-    진로역량: 0,
-    자기주도성: 0,
-    발전가능성: 0,
-    공동체의식: 0,
-};
-
-const initialBooks: BookRecord[] = [];
-
-const initialResources: SubjectResource[] = [];
-
 // ============ TABS ============
 
 type Tab = 'overview' | 'memos' | 'files' | 'grades' | 'books' | 'resources' | 'analysis' | 'search' | 'log';
@@ -89,13 +58,13 @@ type Tab = 'overview' | 'memos' | 'files' | 'grades' | 'books' | 'resources' | '
 export default function StudentDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const [loading, setLoading] = useState(true);
-    const [isDemo, setIsDemo] = useState(false);
     
     const [student, setStudent] = useState<Student | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
     const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'idle'>('idle');
     const [userRole, setUserRole] = useState<'consultant' | 'manager'>('consultant');
     const [parentConsultantId, setParentConsultantId] = useState<string | null>(null);
+    const [fetchError, setFetchError] = useState<string | null>(null);
 
     const searchParams = useSearchParams();
     const urlTab = searchParams.get('tab');
@@ -109,10 +78,10 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
     // Toast state
     const [toast, setToast] = useState<string | null>(null);
-    const showToast = (message: string) => {
+    const showToast = useCallback((message: string) => {
         setToast(message);
         setTimeout(() => setToast(null), 3000);
-    };
+    }, []);
 
     // Edit student state
     const [showEditModal, setShowEditModal] = useState(false);
@@ -183,7 +152,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     const allActivities = useMemo(() => {
         const all = [
             ...memos.map(m => ({ id: m.id, date: m.createdAt, type: '메모', content: m.content, semester: undefined })),
-            ...files.map(f => ({ id: f.id, date: f.uploadedAt, type: '파일', content: f.fileName, semester: f.semester })),
+            ...files.map(f => ({ id: f.id, date: f.uploadedAt, type: '파일', content: f.fileName, memo: f.summary || '', semester: f.semester })),
             ...grades.map(g => ({ 
                 id: g.id, 
                 date: g.createdAt, 
@@ -192,7 +161,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 semester: g.examType === '내신' ? `${g.studentGrade}-${g.semester}` : undefined
             })),
             ...books.map(b => ({ id: b.id, date: b.createdAt, type: '도서', content: b.title, semester: undefined }))
-        ] as { id: string; date: string; type: string; content: string; semester?: string }[];
+        ] as { id: string; date: string; type: string; content: string; memo?: string; semester?: string }[];
         
         return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [memos, files, grades, books]);
@@ -202,6 +171,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     const filteredActivities = useMemo(() => {
         return allActivities.filter(act => {
             const matchesQuery = act.content.toLowerCase().includes(logSearchQuery.toLowerCase()) || 
+                               (act.memo?.toLowerCase().includes(logSearchQuery.toLowerCase())) ||
                                act.type.toLowerCase().includes(logSearchQuery.toLowerCase());
             
             const matchesCategory = logCategory === '전체' || act.type === logCategory;
@@ -242,6 +212,23 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         '목': ['', '', '', '', '', '', ''],
         '금': ['', '', '', '', '', '', ''],
     });
+
+    // File Upload with Memo Modal states
+    const [showUploadModal, setShowUploadModal] = useState(false);
+    const [selectedFileToUpload, setSelectedFileToUpload] = useState<File | null>(null);
+    const [uploadMemo, setUploadMemo] = useState('');
+    const [uploadTargetCategory, setUploadTargetCategory] = useState<string | null>(null);
+    const [uploadTargetFolderId, setUploadTargetFolderId] = useState<string | null>(null);
+
+    // File Detail Modal states
+    const [showFileDetailModal, setShowFileDetailModal] = useState(false);
+    const [selectedFileForDetail, setSelectedFileForDetail] = useState<StudentFile | null>(null);
+    const [isEditingFileMemo, setIsEditingFileMemo] = useState(false);
+    const [editingFileMemoValue, setEditingFileMemoValue] = useState('');
+
+    // Upload Memo Modal states (업로드 직후 메모 입력)
+    const [uploadedFileForMemo, setUploadedFileForMemo] = useState<StudentFile | null>(null);
+    const [uploadMemoValue, setUploadMemoValue] = useState('');
 
     const fileToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -401,9 +388,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     parentDriveId = await ensureDrivePath(category, cId as string);
                 }
 
+                const idToken = await auth.currentUser?.getIdToken();
                 const response = await fetch('/api/drive', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
+                    },
                     body: JSON.stringify({ action: 'createFolder', name, parentId: parentDriveId, consultantId: cId })
                 });
                 const result = await response.json();
@@ -463,9 +454,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     const newParentDriveId = newParentId ? folders.find(f => f.id === newParentId)?.driveFolderId : (student as any).driveFolderId;
 
                     const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+                    const idToken = await auth.currentUser?.getIdToken();
                     await fetch('/api/drive', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}`
+                        },
                         body: JSON.stringify({
                             action: 'moveFolder',
                             fileId: folder.driveFolderId,
@@ -519,7 +514,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     };
 
     const confirmDelete = async () => {
-        if (!deleteTarget || !student || isDemo) return;
+        if (!deleteTarget || !student) return;
         
         const { id: targetId, name: targetName, type } = deleteTarget;
         const currentUserId = localStorage.getItem('userId');
@@ -534,9 +529,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 // 1. Google Drive Sync
                 if (file?.driveFileId) {
                     try {
+                        const idToken = await auth.currentUser?.getIdToken();
                         await fetch('/api/drive', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${idToken}`
+                            },
                             body: JSON.stringify({ action: 'delete', fileId: file.driveFileId, consultantId: cId })
                         });
                     } catch (e) {
@@ -554,9 +553,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 // 1. Drive Delete
                 if (folder?.driveFolderId) {
                     try {
+                        const idToken = await auth.currentUser?.getIdToken();
                         await fetch('/api/drive', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${idToken}`
+                            },
                             body: JSON.stringify({ action: 'delete', fileId: folder.driveFolderId, consultantId: cId })
                         });
                     } catch (e) {
@@ -618,7 +621,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         setDraggingFolderId(null);
                                     } else {
                                         const file = e.dataTransfer.files[0];
-                                        if (file) { handleFileUpload(file, cat, folder.id); showToast(`📁 ${folder.name} 폴더에 업로드됨`); }
+                                        if (file) { handleFileUpload(file, cat, folder.id); }
                                     }
                                 }}
                                 style={{
@@ -655,6 +658,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 {childFiles.map(f => (
                     <li key={f.id} style={{ marginBottom: '2px' }}>
                         <div className="tree-node-content file-node"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedFileForDetail(f);
+                                setEditingFileMemoValue(f.summary || '');
+                                setIsEditingFileMemo(false);
+                            }}
                             draggable
                             onDragStart={(e) => {
                                 setDraggingFileId(f.id);
@@ -667,7 +676,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 e.currentTarget.style.opacity = '1';
                                 e.currentTarget.style.transform = 'scale(1)';
                             }}
-                            onClick={(e) => { e.stopPropagation(); handleDownloadFile(f.id); }}
                             style={{
                                 background: 'rgba(255,255,255,0.03)',
                                 border: '1px dashed var(--gray-600)',
@@ -782,103 +790,101 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         plugins: { legend: { display: false } },
     };
 
-    const fetchData = useCallback(async (studentId: string, demoMode: boolean) => {
+    const fetchData = useCallback(async (studentId: string) => {
         setLoading(true);
-        if (demoMode) {
-            setStudent(demoStudents[studentId] || null);
-            setMemos(initialMemos);
-            setFiles(initialFiles);
-            setGrades(initialGrades);
-            setBooks(initialBooks);
-            setResources(initialResources);
-            setFolders(initialFolders);
-            setLoading(false);
-            return;
-        }
-
+        setFetchError(null);
+        console.log(`[StudentDetail] Fetching student ${studentId}`);
+        
         try {
-            const [s, m, f, g, b, fld] = await Promise.all([
-                studentService.getStudentById(studentId),
-                studentService.getMemos(studentId),
-                studentService.getFiles(studentId),
-                studentService.getGrades(studentId),
-                studentService.getBooks(studentId),
-                studentService.getFolders(studentId),
-            ]);
+            // 1. Student Record (Critical)
+            const s = await studentService.getStudentById(studentId);
+            if (!s) {
+                console.warn("[StudentDetail] Student record not found in Firestore");
+                setStudent(null);
+                setLoading(false);
+                return;
+            }
             setStudent(s);
-            if (s?.timetableData) setTimetableData(s.timetableData);
-            setMemos(m);
-            setFiles(f);
-            setGrades(g);
-            setBooks(b);
-            setResources([]); // 리소스는 아직 서비스에 구현되지 않음
-            setFolders(fld);
+            if (s.timetableData) setTimetableData(s.timetableData);
 
-            // 구글 드라이브 루트 폴더 자동 생성 체크 (폴더가 없는 경우에만)
-            if (s && !s.driveFolderId && !demoMode) {
-                const currentUserId = localStorage.getItem('userId');
+            // 2. Related data
+            try {
+                const [m, f, g, b, fld, res] = await Promise.all([
+                    studentService.getMemos(studentId).catch(() => []),
+                    studentService.getFiles(studentId).catch(() => []),
+                    studentService.getGrades(studentId).catch(() => []),
+                    studentService.getBooks(studentId).catch(() => []),
+                    studentService.getFolders(studentId).catch(() => []),
+                    studentService.getResources(studentId).catch(() => []),
+                ]);
+                
+                setMemos(m);
+                setFiles(f);
+                setGrades(g);
+                setBooks(b);
+                setFolders(fld);
+                setResources(res);
+
+                const initialExpanded = new Set<string>([...FILE_CATEGORIES]);
+                fld.forEach(parent => {
+                    const hasSubFolders = fld.some(child => child.parentId === parent.id);
+                    const hasFiles = f.some(file => file.folderId === parent.id);
+                    if (hasSubFolders || hasFiles) initialExpanded.add(parent.id);
+                });
+                setExpandedNodes(initialExpanded);
+            } catch (err) {
+                console.warn("[StudentDetail] Non-critical data fetch error:", err);
+            }
+
+            // 3. 구글 드라이브 루트 폴더 자동 생성 체크
+            if (s && !s.driveFolderId) {
                 const pId = localStorage.getItem('parentId');
-                const cId = (pId && pId !== 'undefined') ? pId : currentUserId;
+                const uId = localStorage.getItem('userId');
+                const cId = pId || uId;
                 
                 if (cId) {
                     try {
-                        console.log("[Drive] Creating folders for new student:", s.name);
+                        const idToken = await auth.currentUser?.getIdToken();
                         const resp = await fetch('/api/drive', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${idToken}`
+                            },
                             body: JSON.stringify({ 
                                 action: 'createFolder', 
-                                name: `${s.name}_${s.school}_${s.grade}학년`, 
+                                name: `${s.name}_${s.school}`, 
                                 consultantId: cId 
                             })
                         });
-                        const res = await resp.json();
-                        if (res.success && res.id) {
-                            await studentService.updateStudent(studentId, { driveFolderId: res.id });
-                            setStudent(prev => prev ? { ...prev, driveFolderId: res.id } : null);
-                            showToast(`📁 구글 드라이브에 "${s.name}" 폴더가 생성되었습니다.`);
-                        } else if (res.error?.includes('authentication credentials') || res.error?.includes('401')) {
-                            showToast('⚠️ 구글 인증 만료로 드라이브 폴더를 만들지 못했습니다. [설정]에서 재연결해 주세요.');
+                        if (resp.status === 200) {
+                            const res = await resp.json();
+                            if (res.success && res.id) {
+                                await studentService.updateStudent(studentId, { driveFolderId: res.id });
+                                setStudent(prev => prev ? { ...prev, driveFolderId: res.id } : null);
+                            }
                         }
-                    } catch (driveErr: any) {
+                    } catch (driveErr) {
                         console.error("Auto drive folder creation failed:", driveErr);
                     }
                 }
             }
-            
-            // Intelligence Expansion: 
-            // 1. Always expand 1st level (categories)
-            // 2. Expand any folder that HAS files or sub-folders
-            const initialExpanded = new Set<string>([...FILE_CATEGORIES]);
-            
-            fld.forEach(parent => {
-                const hasSubFolders = fld.some(child => child.parentId === parent.id);
-                const hasFiles = f.some(file => file.folderId === parent.id);
-                if (hasSubFolders || hasFiles) {
-                    initialExpanded.add(parent.id);
-                }
-            });
-            
-            setExpandedNodes(initialExpanded);
-        } catch (error) {
-            console.error("Error fetching student details:", error);
-            showToast("데이터를 불러오는데 실패했습니다.");
+        } catch (error: any) {
+            console.error("Critical error fetching student details:", error);
+            setFetchError(error.message);
         }
         setLoading(false);
-    }, []);
+    }, [showToast]); // Remove parentConsultantId dependency
 
     useEffect(() => {
-        const mode = localStorage.getItem('authMode') === 'demo';
-        setIsDemo(mode && id.startsWith('stu-'));
-
-        // 권한 정보 로드
+        // 권한 정보 로드 (한 번만 실행)
         const role = localStorage.getItem('role') as 'consultant' | 'manager' || 'consultant';
         const pId = localStorage.getItem('parentId');
         setUserRole(role);
         setParentConsultantId(pId);
         
         const unsubscribe = auth.onAuthStateChanged((user: any) => {
-            fetchData(id, mode && id.startsWith('stu-'));
+            if (user) fetchData(id);
         });
 
         return () => unsubscribe();
@@ -907,7 +913,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         // 2. 구글 드라이브 동기화 (EduFlow_Files 루트 하위 구조)
         const currentUserId = localStorage.getItem('userId');
         const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
-        if (!isDemo && !student.driveFolderId && cId && cId !== 'undefined') {
+        if (!student.driveFolderId && cId && cId !== 'undefined') {
             const ensureDriveFolder = async () => {
                 setSyncStatus('syncing');
                 try {
@@ -937,7 +943,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         } else if (student.driveFolderId) {
             setSyncStatus('connected');
         }
-    }, [student?.id, isDemo]);
+    }, [student?.id]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -961,7 +967,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             <div className="card" style={{ textAlign: 'center', padding: 'var(--space-3xl)' }}>
                 <Brain size={48} style={{ marginBottom: 'var(--space-md)', opacity: 0.2, margin: '0 auto' }} />
                 <h3>학생을 찾을 수 없습니다</h3>
-                <p style={{ color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>해당 ID의 학생 데이터가 존재하지 않거나 접근 권한이 없습니다.</p>
+                <p style={{ color: 'var(--text-muted)', marginTop: 'var(--space-sm)' }}>
+                    해당 ID({id})의 학생 데이터가 존재하지 않거나 접근 권한이 없습니다.
+                </p>
+                <div style={{ marginTop: 'var(--space-md)', fontSize: '0.8rem', color: 'var(--danger-400)', opacity: 0.7 }}>
+                    Debug Info: Mode={localStorage.getItem('authMode')} | ID={id} | DB_Init={db && (db as any).type !== 'undefined' ? 'OK' : 'FAIL'}
+                    {fetchError && <div style={{ marginTop: '4px' }}>Error: {fetchError}</div>}
+                </div>
                 <Link href="/dashboard/students" className="btn btn-primary" style={{ marginTop: 'var(--space-lg)', display: 'inline-block' }}>목록으로 돌아가기</Link>
             </div>
         );
@@ -997,22 +1009,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 category: memoCategory,
             };
 
-            if (isDemo) {
-                const demoMemo: Memo = {
-                    ...memoData,
-                    id: `m-${Date.now()}`,
-                    createdAt: new Date().toISOString(),
-                };
-                setMemos([demoMemo, ...memos]);
-            } else {
-                const newId = await studentService.addMemo(memoData);
-                const fullMemo: Memo = {
-                    ...memoData,
-                    id: newId,
-                    createdAt: new Date().toISOString(),
-                };
-                setMemos([fullMemo, ...memos]);
-            }
+            const newId = await studentService.addMemo(memoData);
+            const fullMemo: Memo = {
+                ...memoData,
+                id: newId,
+                createdAt: new Date().toISOString(),
+            };
+            setMemos([fullMemo, ...memos]);
             
             setNewMemo('');
             setMemoTags('');
@@ -1030,9 +1033,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         }
         if (confirm('메모를 삭제하시겠습니까?')) {
             try {
-                if (!isDemo) {
-                    await studentService.deleteMemo(memoId);
-                }
+                await studentService.deleteMemo(memoId);
                 setMemos(memos.filter(m => m.id !== memoId));
                 showToast('🗑️ 메모가 삭제되었습니다.');
             } catch (error) {
@@ -1050,12 +1051,16 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         // 1. 만약 학생의 루트 폴더 ID가 없거나 유효하지 않은 경우 새로 생성 시도
         if (!currentRootId) {
             try {
+                const idToken = await auth.currentUser?.getIdToken();
                 const resp = await fetch('/api/drive', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
+                    },
                     body: JSON.stringify({ 
                         action: 'createFolder', 
-                        name: `${student?.name}_${student?.school}_${student?.grade}학년`, 
+                        name: `${student?.name}_${student?.school}`, 
                         consultantId: cId 
                     })
                 });
@@ -1064,11 +1069,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     currentRootId = res.id;
                     await studentService.updateStudent(id, { driveFolderId: res.id });
                     setStudent(prev => prev ? { ...prev, driveFolderId: res.id } : null);
-                    console.log("[Drive] Student root folder recreated:", res.id);
                 }
             } catch (err) {
                 console.error("Error creating initial drive folder:", err);
-                return null;
             }
         }
 
@@ -1092,9 +1095,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         const pathNames = [gradeName, semesterName, category].filter(Boolean);
         
         try {
+            const idToken = await auth.currentUser?.getIdToken();
             const resp = await fetch('/api/drive', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
                 body: JSON.stringify({ 
                     action: 'getOrCreatePath', 
                     pathNames, 
@@ -1120,12 +1127,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     };
 
     const handleFileUpload = async (file: File, targetCategory?: string, targetFolderId?: string | null) => {
-        if (!student || isDemo) {
-            if (isDemo) showToast('데모 모드에서는 파일 업로드가 지원되지 않습니다.');
-            return;
-        }
+        if (!student) return;
         
-        setUploadedFile({ name: file.name, parsing: true });
+        showToast(`⏳ ${file.name} 업로드 중...`);
         
         try {
             const formData = new FormData();
@@ -1133,32 +1137,43 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             formData.append('studentId', student.id);
             formData.append('semester', selectedSemester);
             
-            // 기본 카테고리 결정
-            const categories = ['진로활동', '동아리', '봉사활동', '성적표', '수행평가'];
-            const finalCategory = targetCategory || categories[Math.floor(Math.random() * categories.length)];
+            const categories = ['교과활동', '자율활동', '진로활동', '동아리', '행특'];
+            const finalCategory = targetCategory || categories[0];
             formData.append('category', finalCategory);
             
             const currentUserId = localStorage.getItem('userId');
             const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
-                            
-                            if (!cId || cId === 'undefined') {
-                                showToast('❌ 컨설턴트 인증 정보가 유실되었습니다. 다시 로그인해 주세요.');
-                                return;
-                            }
-                            formData.append('consultantId', cId);
+            if (!cId || cId === 'undefined') {
+                showToast('❌ 컨설턴트 인증 정보가 유실되었습니다. 다시 로그인해 주세요.');
+                return;
+            }
+            formData.append('consultantId', cId);
             
             if (targetFolderId) {
                 formData.append('folderId', targetFolderId);
-                const driveParentId = folders.find(f => f.id === targetFolderId)?.driveFolderId;
-                if (driveParentId) formData.append('driveParentId', driveParentId);
-            } else {
-                // 상위 드라이브 폴더 지정 (학년 > 학기 > 카테고리 경로 보장, 루트 폴더 없으면 자동 생성)
-                const driveParentId = await ensureDrivePath(finalCategory, cId);
-                if (driveParentId) formData.append('driveParentId', driveParentId);
             }
 
+            // [중요 수정] 타임아웃을 제거하여 폴더 경로가 확실히 생성된 후 업로드 진행 (파일이 밖에 생기는 문제 해결)
+            try {
+                if (targetFolderId) {
+                    const targetFolder = folders.find(f => f.id === targetFolderId);
+                    if (targetFolder?.driveFolderId) {
+                        formData.append('driveParentId', targetFolder.driveFolderId);
+                    }
+                } else {
+                    const driveParentId = await ensureDrivePath(finalCategory, cId);
+                    if (driveParentId) {
+                        formData.append('driveParentId', driveParentId);
+                    }
+                }
+            } catch (e) {
+                console.warn('[Upload] Drive path resolution failed, but continuing with Firestore save:', e);
+            }
+
+            const idToken = await auth.currentUser?.getIdToken();
             const response = await fetch('/api/upload', {
                 method: 'POST',
+                headers: { 'Authorization': `Bearer ${idToken}` },
                 body: formData,
             });
             const result = await response.json();
@@ -1166,7 +1181,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             if (result.success) {
                 setFiles(prev => [result.data, ...prev]);
                 
-                // Auto-expand category and target folder
                 setExpandedNodes(prev => {
                     const next = new Set(prev);
                     next.add(result.data.category);
@@ -1174,20 +1188,18 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     return next;
                 });
 
-                setUploadedFile({ name: file.name, parsing: false, result: { category: result.data.category, tags: result.data.tags, summary: result.data.summary } });
-                showToast(`✅ ${file.name} 업로드 및 AI 분석 완료!`);
+                // 업로드 완료 → 메모 모달 띄우기
+                setUploadedFileForMemo(result.data);
+                setUploadMemoValue('');
+                
+                showToast(`✅ ${file.name} 업로드 완료!`);
             } else {
                 throw new Error(result.error);
             }
         } catch (error: any) {
             console.error("Upload error:", error);
             const errorMsg = error.message || '업로드 중 오류가 발생했습니다.';
-            if (errorMsg.includes('invalid authentication credentials') || errorMsg.includes('Expired') || errorMsg.includes('401')) {
-                showToast('❌ 구글 인증이 만료되었습니다. [설정] 페이지에서 구글 계정을 다시 연결해 주세요.');
-            } else {
-                showToast(`❌ 업로드 실패: ${errorMsg}`);
-            }
-            setUploadedFile(null);
+            showToast(`❌ 업로드 실패: ${errorMsg}`);
         }
     };
 
@@ -1230,33 +1242,20 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
             if (isEditingGrade && editGradeId) {
                 // Update existing record
-                if (isDemo) {
-                    setGrades(grades.map(g => g.id === editGradeId ? { ...g, ...gradeData } : g));
-                } else {
-                    await studentService.updateGrade(editGradeId, gradeData);
-                    // Refresh data
-                    const updatedGrades = await studentService.getGrades(id);
-                    setGrades(updatedGrades);
-                }
+                await studentService.updateGrade(editGradeId, gradeData);
+                // Refresh data
+                const updatedGrades = await studentService.getGrades(id);
+                setGrades(updatedGrades);
                 showToast('✅ 성적이 수정되었습니다.');
             } else {
                 // Add new record
-                if (isDemo) {
-                    const demoGrade: GradeRecord = {
-                        ...gradeData,
-                        id: `g-${Date.now()}`,
-                        createdAt: new Date().toISOString(),
-                    } as GradeRecord;
-                    setGrades([demoGrade, ...grades]);
-                } else {
-                    const newId = await studentService.addGrade(gradeData);
-                    const fullGrade: GradeRecord = {
-                        ...gradeData,
-                        id: newId,
-                        createdAt: new Date().toISOString(),
-                    } as GradeRecord;
-                    setGrades([fullGrade, ...grades]);
-                }
+                const newId = await studentService.addGrade(gradeData);
+                const fullGrade: GradeRecord = {
+                    ...gradeData,
+                    id: newId,
+                    createdAt: new Date().toISOString(),
+                } as GradeRecord;
+                setGrades([fullGrade, ...grades]);
                 showToast('✅ 성적이 저장되었습니다.');
             }
 
@@ -1286,9 +1285,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         }
         if (confirm('성적 기록을 삭제하시겠습니까?')) {
             try {
-                if (!isDemo) {
-                    await studentService.deleteGrade(gradeId);
-                }
+                await studentService.deleteGrade(gradeId);
                 setGrades(grades.filter(g => g.id !== gradeId));
                 showToast('🗑️ 성적 기록이 삭제되었습니다.');
             } catch (error) {
@@ -1450,17 +1447,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         try {
             const updatedData = {
                 ...editForm,
-                classNumber: editForm.classNumber === '' ? undefined : Number(editForm.classNumber),
-                studentNumber: editForm.studentNumber === '' ? undefined : Number(editForm.studentNumber),
+                classNumber: editForm.classNumber === '' ? null : Number(editForm.classNumber),
+                studentNumber: editForm.studentNumber === '' ? null : Number(editForm.studentNumber),
                 updatedAt: new Date().toISOString(),
             };
 
-            if (isDemo) {
-                setStudent({ ...student!, ...updatedData });
-            } else {
-                await studentService.updateStudent(student!.id, updatedData);
-                setStudent({ ...student!, ...updatedData });
-            }
+            await studentService.updateStudent(student!.id, updatedData);
+            setStudent({ ...student!, ...updatedData });
 
             showToast(`✅ ${editForm.name} 학생 정보가 수정되었습니다.`);
             setShowEditModal(false);
@@ -1487,22 +1480,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 memo: bookForm.memo,
             };
 
-            if (isDemo) {
-                const demoBook: BookRecord = {
-                    ...bookData,
-                    id: `bk-${Date.now()}`,
-                    createdAt: new Date().toISOString(),
-                };
-                setBooks([demoBook, ...books]);
-            } else {
-                const newId = await studentService.addBook(bookData);
-                const fullBook: BookRecord = {
-                    ...bookData,
-                    id: newId,
-                    createdAt: new Date().toISOString(),
-                };
-                setBooks([fullBook, ...books]);
-            }
+            const newId = await studentService.addBook(bookData);
+            const fullBook: BookRecord = {
+                ...bookData,
+                id: newId,
+                createdAt: new Date().toISOString(),
+            };
+            setBooks([fullBook, ...books]);
 
             setShowBookForm(false);
             setBookForm({ title: '', author: '', imageUrl: '', subject: '', studentGrade: student?.grade || 1, memo: '' });
@@ -1520,9 +1504,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         }
         if (confirm('도서 기록을 삭제하시겠습니까?')) {
             try {
-                if (!isDemo) {
-                    await studentService.deleteBook(bookId);
-                }
+                await studentService.deleteBook(bookId);
                 setBooks(books.filter(b => b.id !== bookId));
                 showToast('🗑️ 도서 기록이 삭제되었습니다.');
             } catch (error) {
@@ -1532,7 +1514,62 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         }
     };
 
+    const handleSaveResource = async () => {
+        if (!resourceForm.subjectName.trim()) {
+            showToast('과목명을 입력하세요.');
+            return;
+        }
+
+        try {
+            const links = resourceForm.linkLabel && resourceForm.linkUrl ? [{ label: resourceForm.linkLabel, url: resourceForm.linkUrl }] : [];
+            const resourceData: Omit<SubjectResource, 'id'> = {
+                studentId: student!.id,
+                subjectName: resourceForm.subjectName,
+                publisher: resourceForm.publisher,
+                links,
+                files: [],
+            };
+
+            const newId = await studentService.addResource(resourceData);
+            setResources([...resources, { id: newId, ...resourceData }]);
+            setResourceForm({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '' });
+            setShowResourceForm(false);
+            showToast('✅ 교과 리소스가 추가되었습니다.');
+        } catch (error) {
+            console.error("Error adding resource:", error);
+            showToast("리소스 저장 중 오류가 발생했습니다.");
+        }
+    };
+
+    const handleDeleteResource = async (resourceId: string) => {
+        if (userRole === 'manager') {
+            showToast('❌ 삭제 권한이 없습니다.');
+            return;
+        }
+        if (confirm('교과 리소스를 삭제하시겠습니까?')) {
+            try {
+                await studentService.deleteResource(resourceId);
+                setResources(resources.filter(r => r.id !== resourceId));
+                showToast('🗑️ 리소스가 삭제되었습니다.');
+            } catch (error) {
+                console.error("Error deleting resource:", error);
+                showToast("리소스 삭제 중 오류가 발생했습니다.");
+            }
+        }
+    };
+
     // ============ RENDER ============
+    if (loading) {
+        return <div style={{ textAlign: 'center', padding: '100px' }}><Loader2 className="spinner" size={40} /></div>;
+    }
+    if (fetchError || !student) {
+        return (
+            <div style={{ textAlign: 'center', padding: '100px' }}>
+                <h2 style={{ marginBottom: '20px' }}>학생 정보를 찾을 수 없습니다</h2>
+                <Link href="/dashboard/students" className="btn btn-primary">목록으로 돌아가기</Link>
+            </div>
+        );
+    }
 
     return (
         <div style={{ paddingBottom: 'var(--space-2xl)' }}>
@@ -1582,7 +1619,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
                     <button className="btn btn-primary btn-sm" onClick={() => showToast('보고서 생성 기능은 보고서 페이지에서 이용 가능합니다.')}>보고서 생성</button>
                     <button className="btn btn-secondary btn-sm" onClick={() => {
-                        const url = `${window.location.origin}/parent/${student.parentPortalToken || 'demo-token'}`;
+                        const url = `${window.location.origin}/parent/${student.parentPortalToken || ''}`;
                         navigator.clipboard.writeText(url).then(() => { setPortalCopied(true); setTimeout(() => setPortalCopied(false), 2000); });
                         showToast('학부모 공유 링크가 클립보드에 복사되었습니다.');
                     }}>{portalCopied ? '복사됨' : '학부모 링크'}</button>
@@ -1890,69 +1927,93 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             <button className={`btn btn-sm ${mindmapView === 'list' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setMindmapView('list')}>리스트</button>
                         </div>
                         <button className="btn btn-sm btn-secondary" onClick={() => fileInputRef.current?.click()}>파일 업로드</button>
-                        <input ref={fileInputRef} type="file" accept=".pdf,.hwp,.doc,.docx,.txt,.jpg,.png" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = ''; }} />
+                        <input ref={fileInputRef} type="file" accept=".pdf,.hwp,.doc,.docx,.txt,.jpg,.png,.pptx,.xlsx" style={{ display: 'none' }} onChange={(e) => { 
+                            const f = e.target.files?.[0]; 
+                            if (f) handleFileUpload(f);
+                            e.target.value = ''; 
+                        }} />
                     </div>
 
-                    {uploadedFile && (
-                        <div className="card" style={{ 
-                            marginBottom: 'var(--space-lg)', 
-                            borderLeft: uploadedFile.parsing ? '4px solid var(--warning-400)' : '4px solid var(--accent-400)',
-                            background: uploadedFile.parsing ? 'rgba(245, 158, 11, 0.05)' : 'rgba(99, 102, 241, 0.05)',
-                            padding: 'var(--space-md) var(--space-lg)',
+                    {/* Active File Dashboard (선택된 파일 정보) */}
+                    {selectedFileForDetail && (
+                        <div className="card-glass" style={{ 
+                            marginBottom: 'var(--space-xl)', 
+                            padding: 'var(--space-xl)', 
+                            border: '1px solid var(--primary-600)',
+                            boxShadow: '0 0 40px rgba(99, 102, 241, 0.25)',
                             animation: 'slideDown 0.3s ease-out'
                         }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-                                    {uploadedFile.parsing ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <span className="spinner" style={{ width: 20, height: 20 }} />
-                                            <span style={{ fontWeight: 600, color: 'var(--warning-500)' }}>AI가 {uploadedFile.name} 내용을 정독하는 중...</span>
-                                        </div>
-                                    ) : (
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                                <div>
-                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>분석 완료</div>
-                                                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{uploadedFile.name}</div>
-                                                </div>
-                                                <button className="btn btn-ghost btn-xs" onClick={() => setUploadedFile(null)}>닫기</button>
-                                            </div>
-                                            
-                                            {uploadedFile.result?.summary && (
-                                                <div style={{ 
-                                                    background: 'rgba(255,255,255,0.3)', 
-                                                    padding: '12px', 
-                                                    borderRadius: 'var(--radius-sm)', 
-                                                    fontSize: '0.88rem', 
-                                                    lineHeight: 1.6, 
-                                                    color: 'var(--text-secondary)',
-                                                    marginBottom: '12px',
-                                                    border: '1px solid rgba(99, 102, 241, 0.1)',
-                                                    whiteSpace: 'pre-wrap'
-                                                }}>
-                                                    <div style={{ fontWeight: 600, color: 'var(--primary-400)', fontSize: '0.75rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <Brain size={14} /> AI 내용 요약
-                                                    </div>
-                                                    {uploadedFile.result.summary}
-                                                </div>
-                                            )}
-
-                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                                <span className="tag tag-blue" style={{ padding: '4px 10px', fontWeight: 600 }}>{uploadedFile.result?.category}</span>
-                                                {uploadedFile.result?.tags.map((t) => (
-                                                    <span key={t} className="tag tag-gray" style={{ fontSize: '0.75rem' }}>#{t}</span>
-                                                ))}
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                                                    * 이제 대시보드 검색에서 위 키워드로 검색이 가능합니다.
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-lg)' }}>
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 600 }}>선택된 파일</div>
+                                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.2rem', fontWeight: 700 }}>
+                                        <File size={22} color="var(--primary-400)" />
+                                        {selectedFileForDetail.fileName}
+                                    </h3>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                        {selectedFileForDetail.category} · {new Date(selectedFileForDetail.uploadedAt).toLocaleString('ko-KR')} 업로드
+                                    </div>
                                 </div>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    <a 
+                                        href={selectedFileForDetail.driveFileId ? `https://drive.google.com/file/d/${selectedFileForDetail.driveFileId}/view` : '#'} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="btn btn-primary btn-sm"
+                                        style={{ 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            gap: '8px', 
+                                            height: '36px', 
+                                            padding: '0 16px',
+                                            background: 'var(--accent-500)',
+                                            borderColor: 'var(--accent-400)',
+                                            fontWeight: 700,
+                                            boxShadow: '0 0 15px rgba(99, 102, 241, 0.3)'
+                                        }}
+                                        onClick={(e) => {
+                                            if (!selectedFileForDetail.driveFileId) {
+                                                e.preventDefault();
+                                                showToast('⚠️ 드라이브 연결 정보를 찾는 중입니다. 잠시 후 다시 시도해 주세요.');
+                                            }
+                                        }}
+                                    >
+                                        <ExternalLink size={16} /> 드라이브 미리보기
+                                    </a>
+                                    <button className="btn btn-ghost btn-sm" style={{ padding: '8px' }} onClick={() => { 
+                                        // 닫을 때 변경사항 있으면 저장
+                                        if (editingFileMemoValue !== selectedFileForDetail.summary) {
+                                            studentService.updateFile(selectedFileForDetail.id, { summary: editingFileMemoValue });
+                                            setFiles(prev => prev.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f));
+                                        }
+                                        setSelectedFileForDetail(null); 
+                                        setIsEditingFileMemo(false); 
+                                    }}><X size={24} /></button>
+                                </div>
+                            </div>
+                            
+                            <div style={{ width: '100%' }}>
+                                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                    <FileText size={16} /> 파일 메모
+                                </label>
+                                <textarea
+                                    className="form-textarea"
+                                    value={editingFileMemoValue}
+                                    onChange={(e) => setEditingFileMemoValue(e.target.value)}
+                                    onBlur={() => {
+                                        // 포커스 벗어날 때 자동 저장
+                                        if (editingFileMemoValue !== selectedFileForDetail.summary) {
+                                            studentService.updateFile(selectedFileForDetail.id, { summary: editingFileMemoValue });
+                                            setFiles(prev => prev.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f));
+                                            setSelectedFileForDetail({ ...selectedFileForDetail, summary: editingFileMemoValue });
+                                        }
+                                    }}
+                                    placeholder="파일 메모를 여기에 바로 입력하세요... (입력 후 다른 곳을 클릭하면 자동 저장됩니다)"
+                                    style={{ minHeight: '120px', fontSize: '0.98rem', lineHeight: 1.7, width: '100%' }}
+                                />
                             </div>
                         </div>
                     )}
-
                     {/* Mind Map View */}
                     {mindmapView === 'mindmap' && (
                         <div className="card mindmap-container">
@@ -1979,7 +2040,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                                             setDraggingFolderId(null);
                                                         } else {
                                                             const file = e.dataTransfer.files[0]; 
-                                                            if (file) { handleFileUpload(file, cat, null); showToast(`📁 ${cat} 카테고리에 업로드됨`); } 
+                                                            if (file) { handleFileUpload(file, cat, null); } 
                                                         }
                                                     }}
                                                     style={{ borderLeftColor: catColors[cat], borderLeftWidth: '4px' }}
@@ -2002,7 +2063,11 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 <thead><tr><th>파일명</th><th>카테고리</th><th>태그</th><th>업로드일</th><th>작업</th></tr></thead>
                                 <tbody>
                                     {files.map((file) => (
-                                        <tr key={file.id}>
+                                        <tr key={file.id} style={{ cursor: 'pointer' }} onClick={() => {
+                                            setSelectedFileForDetail(file);
+                                            setEditingFileMemoValue(file.summary || '');
+                                            setIsEditingFileMemo(false);
+                                        }}>
                                             <td><div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}><File size={16} /><span style={{ fontWeight: 500 }}>{file.fileName}</span></div></td>
                                             <td><span className="tag tag-blue">{file.category}</span></td>
                                             <td><div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>{file.tags.map((t) => <span key={t} className="tag tag-gray" style={{ fontSize: '0.68rem' }}>#{t}</span>)}</div></td>
@@ -2306,12 +2371,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">메모</label><input className="form-input" placeholder="독서 메모" value={bookForm.memo} onChange={(e) => setBookForm({ ...bookForm, memo: e.target.value })} /></div>
                             </div>
                             {bookForm.imageUrl && <div style={{ marginTop: 'var(--space-sm)' }}><img src={bookForm.imageUrl} alt="미리보기" style={{ height: 80, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} /></div>}
-                            <button className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => {
-                                if (!bookForm.title.trim()) { showToast('제목을 입력하세요.'); return; }
-                                setBooks([{ id: `bk-${Date.now()}`, studentId: student!.id, ...bookForm, createdAt: new Date().toISOString() }, ...books]);
-                                setBookForm({ title: '', author: '', imageUrl: '', subject: '', studentGrade: student?.grade || 1, memo: '' });
-                                showToast('도서가 추가되었습니다.');
-                            }}>저장</button>
+                            <button className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={handleSaveBook}>저장</button>
                         </div>
                     )}
 
@@ -2329,12 +2389,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.memo || '-'}</td>
                                         <td>
                                             {userRole !== 'manager' && (
-                                                <button className="btn btn-ghost btn-sm" onClick={() => { 
-                                                    if (confirm('도서 기록을 삭제하시겠습니까?')) {
-                                                        setBooks(books.filter(b => b.id !== book.id)); 
-                                                        showToast('도서가 삭제되었습니다.'); 
-                                                    }
-                                                }} style={{ color: 'var(--danger-400)' }}><Trash2 size={16} /></button>
+                                                <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteBook(book.id)} style={{ color: 'var(--danger-400)' }}><Trash2 size={16} /></button>
                                             )}
                                         </td>
                                     </tr>
@@ -2362,13 +2417,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">링크 이름</label><input className="form-input" placeholder="예: EBS 강의" value={resourceForm.linkLabel} onChange={(e) => setResourceForm({ ...resourceForm, linkLabel: e.target.value })} /></div>
                                 <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">링크 URL</label><input className="form-input" placeholder="https://..." value={resourceForm.linkUrl} onChange={(e) => setResourceForm({ ...resourceForm, linkUrl: e.target.value })} /></div>
                             </div>
-                            <button className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => {
-                                if (!resourceForm.subjectName.trim()) { showToast('과목명을 입력하세요.'); return; }
-                                const links = resourceForm.linkLabel && resourceForm.linkUrl ? [{ label: resourceForm.linkLabel, url: resourceForm.linkUrl }] : [];
-                                setResources([...resources, { id: `res-${Date.now()}`, studentId: student.id, subjectName: resourceForm.subjectName, publisher: resourceForm.publisher, links, files: [] }]);
-                                setResourceForm({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '' });
-                                showToast('교과 리소스가 추가되었습니다.');
-                            }}>저장</button>
+                            <button className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={handleSaveResource}>저장</button>
                         </div>
                     )}
 
@@ -2378,7 +2427,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }}>
                                     <h4 style={{ fontWeight: 700, fontSize: '1rem' }}>{res.subjectName}</h4>
                                     {userRole !== 'manager' && (
-                                        <button className="btn btn-ghost btn-sm" onClick={() => { setResources(resources.filter(r => r.id !== res.id)); showToast('🗑️ 삭제되었습니다.'); }} style={{ color: 'var(--danger-400)', fontSize: '0.72rem' }}>✕</button>
+                                        <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteResource(res.id)} style={{ color: 'var(--danger-400)', fontSize: '0.72rem' }}>✕</button>
                                     )}
                                 </div>
                                 {res.publisher && <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>📖 출판사: {res.publisher}</div>}
@@ -2714,6 +2763,64 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 </div>
             )}
 
+            {/* ===== UPLOAD MEMO MODAL (업로드 직후 메모 입력) ===== */}
+            {uploadedFileForMemo && (
+                <div className="modal-overlay" onClick={() => setUploadedFileForMemo(null)} style={{ zIndex: 1200 }}>
+                    <div className="modal card-glass" onClick={(e) => e.stopPropagation()} style={{ 
+                        maxWidth: '500px', 
+                        padding: 'var(--space-xl)', 
+                        border: '1px solid var(--primary-600)',
+                        boxShadow: '0 0 60px rgba(99, 102, 241, 0.4)'
+                    }}>
+                        <div className="modal-header" style={{ marginBottom: 'var(--space-lg)', padding: 0, border: 'none' }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '12px', fontWeight: 700 }}>
+                                <div className="avatar avatar-sm" style={{ background: 'var(--success-500)', color: 'white' }}>
+                                    <FileText size={18} />
+                                </div>
+                                파일 메모 작성
+                            </h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setUploadedFileForMemo(null)}>✕</button>
+                        </div>
+                        <div style={{ marginBottom: 'var(--space-md)' }}>
+                            <div style={{ 
+                                display: 'flex', alignItems: 'center', gap: '10px', 
+                                padding: '12px 16px', background: 'var(--bg-secondary)', 
+                                borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-md)',
+                                border: '1px solid var(--border-color)'
+                            }}>
+                                <File size={18} color="var(--primary-400)" />
+                                <div>
+                                    <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{uploadedFileForMemo.fileName}</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{uploadedFileForMemo.category}</div>
+                                </div>
+                            </div>
+                            <label className="form-label">메모 (나중에 검색에 활용됩니다)</label>
+                            <textarea
+                                className="form-textarea"
+                                value={uploadMemoValue}
+                                onChange={(e) => setUploadMemoValue(e.target.value)}
+                                placeholder="이 파일에 대한 메모를 작성하세요..."
+                                style={{ minHeight: '120px', fontSize: '0.95rem', lineHeight: 1.7 }}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="modal-footer" style={{ padding: 0, border: 'none', gap: 'var(--space-sm)' }}>
+                            <button className="btn btn-secondary" onClick={() => setUploadedFileForMemo(null)}>건너뛰기</button>
+                            <button className="btn btn-primary" style={{ flex: 1, height: '48px' }} onClick={() => {
+                                if (uploadMemoValue.trim()) {
+                                    studentService.updateFile(uploadedFileForMemo.id, { summary: uploadMemoValue });
+                                    setFiles(prev => prev.map(f => f.id === uploadedFileForMemo.id ? { ...f, summary: uploadMemoValue } : f));
+                                    showToast('✅ 메모가 저장되었습니다.');
+                                }
+                                setUploadedFileForMemo(null);
+                            }}>
+                                💾 메모 저장
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Folder Creation Modal */}
             {showFolderModal && (
                 <div className="modal-overlay" onClick={() => setShowFolderModal(false)} style={{ zIndex: 1000 }}>
@@ -2822,6 +2929,80 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             {/* Toast Notification */}
             {toast && (
                 <div className="toast toast-success">{toast}</div>
+            )}
+
+            {/* ===== FILE DETAIL MODAL (메모 + 미리보기) ===== */}
+            {showFileDetailModal && selectedFileForDetail && (
+                <div className="modal-overlay" onClick={() => { setShowFileDetailModal(false); setIsEditingFileMemo(false); }} style={{ zIndex: 1200 }}>
+                    <div className="modal card-glass" onClick={(e) => e.stopPropagation()} style={{ 
+                        maxWidth: '550px', 
+                        width: '95vw',
+                        padding: 'var(--space-xl)', 
+                        border: '1px solid var(--primary-600)',
+                        boxShadow: '0 0 50px rgba(99, 102, 241, 0.3)',
+                    }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-lg)' }}>
+                            <div>
+                                <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.15rem', fontWeight: 700 }}>
+                                    <File size={20} color="var(--primary-400)" />
+                                    {selectedFileForDetail.fileName}
+                                </h3>
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '6px', alignItems: 'center' }}>
+                                    <span className="tag tag-blue" style={{ fontSize: '0.75rem' }}>{selectedFileForDetail.category}</span>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        {new Date(selectedFileForDetail.uploadedAt).toLocaleString('ko-KR')}
+                                    </span>
+                                </div>
+                            </div>
+                            <button className="btn btn-ghost btn-sm" onClick={() => { setShowFileDetailModal(false); setIsEditingFileMemo(false); }}><X size={20} /></button>
+                        </div>
+                        
+                        {/* Memo Field */}
+                        <div style={{ marginBottom: 'var(--space-lg)' }}>
+                            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                                <FileText size={14} /> 파일 메모
+                            </label>
+                            <textarea
+                                className="form-textarea"
+                                value={editingFileMemoValue}
+                                onChange={(e) => setEditingFileMemoValue(e.target.value)}
+                                placeholder="이 파일에 대한 메모를 작성하세요... (나중에 이 내용으로 검색할 수 있습니다)"
+                                style={{ minHeight: '150px', fontSize: '0.92rem', lineHeight: 1.7 }}
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Buttons */}
+                        <div style={{ display: 'flex', gap: 'var(--space-md)' }}>
+                            <button 
+                                className="btn btn-primary" 
+                                style={{ flex: 2, height: '48px' }}
+                                onClick={() => {
+                                    studentService.updateFile(selectedFileForDetail.id, { summary: editingFileMemoValue });
+                                    setFiles(files.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f));
+                                    setSelectedFileForDetail({ ...selectedFileForDetail, summary: editingFileMemoValue });
+                                    showToast('✅ 메모가 저장되었습니다.');
+                                    setShowFileDetailModal(false);
+                                    setIsEditingFileMemo(false);
+                                }}
+                            >
+                                💾 메모 저장
+                            </button>
+                            {selectedFileForDetail.driveFileId && (
+                                <a 
+                                    href={`https://drive.google.com/file/d/${selectedFileForDetail.driveFileId}/view`} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="btn btn-secondary"
+                                    style={{ flex: 1, height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                >
+                                    <ExternalLink size={16} /> 미리보기
+                                </a>
+                            )}
+                        </div>
+                    </div>
+                </div>
             )}
 
             <style jsx>{`
