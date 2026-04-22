@@ -125,5 +125,21 @@ export const consultantService = {
             return snapshot.data() as ManagerData;
         }
         return null;
+    },
+
+    // --- Admin전용: 승인 대기 중인 컨설턴트 목록 조회 ---
+    async getPendingConsultants(): Promise<ConsultantData[]> {
+        const q = query(collection(db, 'consultants'), where('approved', '==', false));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ConsultantData));
+    },
+
+    // --- Admin전용: 컨설턴트 승인 처리 ---
+    async approveConsultant(userId: string) {
+        const docRef = doc(db, 'consultants', userId);
+        await setDoc(docRef, { 
+            approved: true,
+            approvedAt: new Date().toISOString()
+        }, { merge: true });
     }
 };

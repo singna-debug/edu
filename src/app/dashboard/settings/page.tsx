@@ -14,12 +14,29 @@ export default function SettingsPage() {
     const [newManagerEmail, setNewManagerEmail] = useState('');
     const [isAdding, setIsAdding] = useState(false);
     const [isLoadingManagers, setIsLoadingManagers] = useState(false);
+    const [pendingConsultants, setPendingConsultants] = useState<any[]>([]);
+    const [isLoadingPending, setIsLoadingPending] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
 
     const showToast = (message: string) => {
         setToast(message);
         setTimeout(() => setToast(null), 3000);
     };
+
+    const fetchPendingConsultants = useCallback(async () => {
+        const role = localStorage.getItem('role');
+        if (role !== 'consultant') return;
+
+        setIsLoadingPending(true);
+        try {
+            const data = await consultantService.getPendingConsultants();
+            setPendingConsultants(data);
+        } catch (error) {
+            console.error("Error fetching pending consultants:", error);
+        } finally {
+            setIsLoadingPending(false);
+        }
+    }, []);
 
     const fetchManagers = useCallback(async () => {
         const userId = localStorage.getItem('userId');
@@ -49,6 +66,7 @@ export default function SettingsPage() {
 
         if (role === 'consultant') {
             fetchManagers();
+            fetchPendingConsultants();
         }
     }, [fetchManagers]);
 
@@ -93,6 +111,17 @@ export default function SettingsPage() {
         } catch (error) {
             console.error("Error deleting manager:", error);
             showToast('❌ 권한 삭제 중 오류가 발생했습니다.');
+        }
+    };
+
+    const handleApproveConsultant = async (userId: string) => {
+        try {
+            await consultantService.approveConsultant(userId);
+            showToast('✅ 사용자가 승인되었습니다.');
+            fetchPendingConsultants();
+        } catch (error) {
+            console.error("Error approving consultant:", error);
+            showToast('❌ 승인 중 오류가 발생했습니다.');
         }
     };
 
@@ -270,6 +299,42 @@ export default function SettingsPage() {
                                 <div style={{ textAlign: 'center', padding: 'var(--space-md)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                                     등록된 관리자가 없습니다.
                                 </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Pending Approvals - Master Admin Section */}
+                {userRole === 'consultant' && pendingConsultants.length > 0 && (
+                    <div className="card" style={{ border: '1px solid var(--warning-600)', background: 'rgba(245, 158, 11, 0.02)' }}>
+                        <h3 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--warning-400)' }}>
+                            <Mail size={18} /> 가입 승인 대기 목록
+                        </h3>
+                        <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-md)' }}>
+                            신규 가입한 컨설턴트의 접근 권한을 승인합니다.
+                        </p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                            {isLoadingPending ? (
+                                <div style={{ textAlign: 'center', padding: 'var(--space-md)' }}>
+                                    <Loader2 className="spinner" size={20} style={{ margin: '0 auto', opacity: 0.5 }} />
+                                </div>
+                            ) : (
+                                pendingConsultants.map((cp) => (
+                                    <div key={cp.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-md)', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600 }}>{cp.display_name}</div>
+                                            <div className="text-xs text-muted" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Mail size={12} /> {cp.email}</div>
+                                        </div>
+                                        <button 
+                                            className="btn btn-primary btn-sm" 
+                                            style={{ background: 'var(--warning-500)', borderColor: 'var(--warning-600)' }}
+                                            onClick={() => handleApproveConsultant(cp.id)}
+                                        >
+                                            승인하기
+                                        </button>
+                                    </div>
+                                ))
                             )}
                         </div>
                     </div>
