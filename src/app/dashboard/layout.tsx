@@ -68,16 +68,42 @@ export default function DashboardLayout({
         setUserPhoto(photo || '');
 
         // 2. Real-time update from Firebase Auth
-        const unsubscribe = onAuthStateChanged(auth, (user: any) => {
+        const unsubscribe = onAuthStateChanged(auth, async (user: any) => {
             if (user && mode !== 'demo') {
                 setUserName(user.displayName || user.email?.split('@')[0] || '정식 컨설턴트');
                 setUserEmail(user.email || '');
                 setUserPhoto(user.photoURL || '');
                 
+                // [중요] localStorage에 정보가 부족한 경우 서버에서 다시 채움 (세션 복구)
+                const currentRole = localStorage.getItem('role');
+                const currentParentId = localStorage.getItem('parentId');
+                
+                if (!currentRole || !currentParentId || currentParentId === 'undefined') {
+                    console.log("[Dashboard] Missing session data, recovering...");
+                    try {
+                        const { consultantService } = await import('@/lib/services/consultantService');
+                        const consultantData = await consultantService.getConsultant(user.uid);
+                        
+                        if (consultantData?.approved) {
+                            localStorage.setItem('role', 'consultant');
+                            localStorage.setItem('parentId', user.uid);
+                        } else {
+                            const managerData = await consultantService.findManagerByEmail(user.email || '');
+                            if (managerData) {
+                                localStorage.setItem('role', 'manager');
+                                localStorage.setItem('parentId', managerData.parentId);
+                            }
+                        }
+                    } catch (err) {
+                        console.error("[Dashboard] Session recovery failed:", err);
+                    }
+                }
+
                 // Update localStorage to keep it in sync
                 localStorage.setItem('userName', user.displayName || '');
                 localStorage.setItem('userEmail', user.email || '');
                 localStorage.setItem('userPhoto', user.photoURL || '');
+                localStorage.setItem('userId', user.uid);
             }
         });
 

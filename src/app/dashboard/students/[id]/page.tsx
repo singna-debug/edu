@@ -1537,6 +1537,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 updatedAt: new Date().toISOString(),
             };
 
+            const currentUserId = localStorage.getItem('userId');
+            const cId = (parentConsultantId && parentConsultantId !== 'undefined') ? parentConsultantId : currentUserId;
+
             await studentService.updateStudent(student!.id, updatedData);
             setStudent({ ...student!, ...updatedData });
 
