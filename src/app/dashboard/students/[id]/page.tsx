@@ -39,7 +39,8 @@ import {
     AlertTriangle,
     Pencil,
     Loader2,
-    ExternalLink
+    ExternalLink,
+    Clipboard
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { studentService } from '@/lib/services/studentService';
@@ -125,7 +126,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
     // Search state
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchResult, setSearchResult] = useState<{ answer: string; sources: { text: string; category: string }[] } | null>(null);
+    const [searchResult, setSearchResult] = useState<{ answer: string; sources: { text: string; category: string; id?: string; type?: 'memo' | 'file' | 'grade' | 'resource'; url?: string }[] } | null>(null);
     const [isSearching, setIsSearching] = useState(false);
 
     // Book state
@@ -136,7 +137,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     // Resource state
     const [resources, setResources] = useState<SubjectResource[]>([]);
     const [showResourceForm, setShowResourceForm] = useState(false);
-    const [resourceForm, setResourceForm] = useState({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '' });
+    const [resourceForm, setResourceForm] = useState({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '', tableOfContents: '' });
+    const [isAnalyzingUrl, setIsAnalyzingUrl] = useState(false);
 
     // Mind map state
     const [selectedSemester, setSelectedSemester] = useState('1-1');
@@ -656,7 +658,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     );
                 })}
                 {childFiles.map(f => (
-                    <li key={f.id} style={{ marginBottom: '2px' }}>
+                    <li key={f.id} id={`file-${f.id}`} style={{ marginBottom: '2px' }}>
                         <div className="tree-node-content file-node"
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1319,7 +1321,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             // 성적/평균/내신/점수 관련 질문 감지
             const isGradeQuery = ['성적', '점수', '평균', '등급', '내신', '모의', '중간', '기말', '몇점', '몇 점', '알려줘', '알려줄래'].some(k => q.includes(k));
             // 활동/메모 관련 질문 감지
-            const isActivityQuery = ['활동', '동아리', '봉사', '대회', '경시', '멘토', '발표', '탐구', '리더십', '진로'].some(k => q.includes(k));
+            const isActivityQuery = ['활동', '동아리', '봉사', '대회', '경시', '멘토', '발표', '탐구', '리더십', '진로', '수상', '파일', '보고서', '기록', '내역', '세특', '문서'].some(k => q.includes(k));
 
             if (isGradeQuery) {
                 // 질문에서 과목명 추출
@@ -1336,7 +1338,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
                 // 내신 성적만 필터
                 const naesinGrades = grades.filter(g => g.examType === '내신');
-                const sources: { text: string; category: string }[] = [];
+                const sources: { text: string; category: string; url?: string; type?: 'memo' | 'file' | 'grade' | 'resource'; id?: string }[] = [];
 
                 let answerLines: string[] = [`"${searchQuery}"에 대한 검색 결과입니다.\n`];
                 answerLines.push(`📊 ${student.name} 학생의 내신 성적 분석:\n`);
@@ -1365,7 +1367,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                         answerLines.push(`  • ${s.label}: ${s.score !== undefined ? `${s.score}점` : '-'}${s.grade !== undefined ? ` (${s.grade}등급)` : ''}`);
                     });
                     answerLines.push(`  → 평균: ${avg}점`);
-                    sources.push({ text: `${subName} 내신 성적 ${records.length}건`, category: '성적표' });
+                    sources.push({ 
+                        text: `${subName} 내신 성적 ${records.length}건`, 
+                        category: '성적표',
+                        type: 'grade',
+                        url: `/dashboard/students/${id}?tab=grades`
+                    });
                 }
 
                 if (sources.length === 0) {
@@ -1386,37 +1393,72 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     f.tags.some(t => q.includes(t.toLowerCase())) ||
                     (f.summary && q.split(/\s+/).some(w => w.length >= 2 && f.summary!.includes(w)))
                 );
+                const matchedResources = resources.filter(res =>
+                    res.subjectName.toLowerCase().includes(q) ||
+                    (res.tableOfContents && q.split(/\s+/).some(w => w.length >= 2 && res.tableOfContents!.toLowerCase().includes(w)))
+                );
 
                 let answerLines: string[] = [`"${searchQuery}"에 대한 검색 결과입니다.\n`];
-                answerLines.push(`${student.name} 학생의 활동 기록에서 관련 내용을 찾았습니다:\n`);
-                const sources: { text: string; category: string }[] = [];
+                answerLines.push(`${student.name} 학생의 활동 및 교과 리소스 기록에서 관련 내용을 찾았습니다:\n`);
+                const sources: { text: string; category: string; url?: string; type?: 'memo' | 'file' | 'grade' | 'resource'; id?: string }[] = [];
 
                 if (matchedMemos.length > 0) {
                     matchedMemos.forEach((m, i) => {
-                        answerLines.push(`${i + 1}. ${m.content} [출처 ${sources.length + 1}]`);
-                        sources.push({ text: m.content.slice(0, 50) + '...', category: m.category });
+                        answerLines.push(`${i + 1}. [메모] ${m.content} [출처 ${sources.length + 1}]`);
+                        sources.push({ 
+                            id: m.id,
+                            text: m.content.slice(0, 50) + '...', 
+                            category: m.category,
+                            type: 'memo',
+                            url: `/dashboard/students/${id}?tab=memos#memo-${m.id}`
+                        });
                     });
                 }
                 if (matchedFiles.length > 0) {
                     matchedFiles.forEach(f => {
-                        answerLines.push(`\n📄 관련 파일: ${f.fileName}`);
+                        answerLines.push(`\n📄 파일: ${f.fileName}`);
                         if (f.summary) answerLines.push(`   요약: ${f.summary}`);
-                        sources.push({ text: f.fileName, category: f.category });
+                        sources.push({ 
+                            id: f.id,
+                            text: f.fileName, 
+                            category: f.category,
+                            type: 'file',
+                            url: f.driveFileId ? `https://drive.google.com/open?id=${f.driveFileId}` : `/dashboard/students/${id}?tab=files#file-${f.id}`
+                        });
                     });
                 }
-                if (matchedMemos.length === 0 && matchedFiles.length === 0) {
+                if (matchedResources.length > 0) {
+                    matchedResources.forEach(res => {
+                        answerLines.push(`\n📚 교과서/참고서: ${res.subjectName} (목차 내 키워드 매칭)`);
+                        sources.push({ 
+                            id: res.id,
+                            text: `${res.subjectName} 목차 데이터`, 
+                            category: '교과리소스',
+                            type: 'resource',
+                            url: `/dashboard/students/${id}?tab=resources`
+                        });
+                    });
+                }
+
+                if (matchedMemos.length === 0 && matchedFiles.length === 0 && matchedResources.length === 0) {
                     // 전체 메모 중 가장 관련성 높은 것 보여주기
                     answerLines.push('정확히 일치하는 기록은 없지만, 아래 활동 기록을 참고해주세요:\n');
                     memos.slice(0, 3).forEach((m, i) => {
                         answerLines.push(`${i + 1}. [${m.category}] ${m.content}`);
-                        sources.push({ text: m.content.slice(0, 50) + '...', category: m.category });
+                        sources.push({ 
+                            id: m.id,
+                            text: m.content.slice(0, 50) + '...', 
+                            category: m.category,
+                            type: 'memo',
+                            url: `/dashboard/students/${id}?tab=memos#memo-${m.id}`
+                        });
                     });
                 }
 
                 setSearchResult({ answer: answerLines.join('\n'), sources });
             } else {
                 // 범용 검색
-                const sources: { text: string; category: string }[] = [];
+                const sources: { text: string; category: string; id?: string; type?: 'memo' | 'file' | 'grade' | 'resource'; url?: string }[] = [];
                 let answerLines: string[] = [`"${searchQuery}"에 대한 종합 검색 결과입니다.\n`];
                 answerLines.push(`📋 ${student.name} 학생 종합 현황:\n`);
                 answerLines.push(`• 학교: ${student.school} (${student.grade}학년)`);
@@ -1432,7 +1474,49 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     answerLines.push('📝 관련 메모:');
                     matchedMemos.forEach((m, i) => {
                         answerLines.push(`${i + 1}. [${m.category}] ${m.content}`);
-                        sources.push({ text: m.content.slice(0, 50) + '...', category: m.category });
+                        sources.push({ 
+                            id: m.id,
+                            text: m.content.slice(0, 50) + '...', 
+                            category: m.category,
+                            type: 'memo',
+                            url: `/dashboard/students/${id}?tab=memos#memo-${m.id}`
+                        });
+                    });
+                }
+
+                const matchedFiles = files.filter(f =>
+                    keywords.some(k => f.fileName.toLowerCase().includes(k) || f.tags.some(t => t.includes(k)))
+                );
+
+                if (matchedFiles.length > 0) {
+                    answerLines.push('\n📄 관련 파일:');
+                    matchedFiles.forEach(f => {
+                        answerLines.push(`• ${f.fileName}${f.summary ? ` (${f.summary})` : ''}`);
+                        sources.push({ 
+                            id: f.id,
+                            text: f.fileName, 
+                            category: f.category,
+                            type: 'file',
+                            url: f.driveFileId ? `https://drive.google.com/open?id=${f.driveFileId}` : `/dashboard/students/${id}?tab=files#file-${f.id}`
+                        });
+                    });
+                }
+
+                const matchedResources = resources.filter(res =>
+                    keywords.some(k => res.subjectName.toLowerCase().includes(k) || (res.tableOfContents && res.tableOfContents.toLowerCase().includes(k)))
+                );
+
+                if (matchedResources.length > 0) {
+                    answerLines.push('\n📚 관련 교과 리소스:');
+                    matchedResources.forEach(res => {
+                        answerLines.push(`• ${res.subjectName} (목차 포함)`);
+                        sources.push({ 
+                            id: res.id,
+                            text: res.subjectName, 
+                            category: '교과리소스',
+                            type: 'resource',
+                            url: `/dashboard/students/${id}?tab=resources`
+                        });
                     });
                 }
 
@@ -1514,6 +1598,38 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         }
     };
 
+    const handleFormatToc = async () => {
+        if (!resourceForm.tableOfContents) {
+            showToast('⚠️ 변환할 목차 내용을 입력하세요.');
+            return;
+        }
+
+        setIsAnalyzingUrl(true);
+        try {
+            const response = await fetch('/api/format-toc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rawText: resourceForm.tableOfContents })
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                setResourceForm(prev => ({
+                    ...prev,
+                    tableOfContents: result.data.formattedToc
+                }));
+                showToast('✨ AI 목차 정문화가 완료되었습니다!');
+            } else {
+                showToast('❌ 변환 실패: ' + result.error);
+            }
+        } catch (err) {
+            console.error("TOC Formatting error:", err);
+            showToast('❌ 변환 중 오류가 발생했습니다.');
+        } finally {
+            setIsAnalyzingUrl(false);
+        }
+    };
+
     const handleSaveResource = async () => {
         if (!resourceForm.subjectName.trim()) {
             showToast('과목명을 입력하세요.');
@@ -1526,13 +1642,14 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 studentId: student!.id,
                 subjectName: resourceForm.subjectName,
                 publisher: resourceForm.publisher,
+                tableOfContents: resourceForm.tableOfContents,
                 links,
                 files: [],
             };
 
             const newId = await studentService.addResource(resourceData);
             setResources([...resources, { id: newId, ...resourceData }]);
-            setResourceForm({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '' });
+            setResourceForm({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '', tableOfContents: '' });
             setShowResourceForm(false);
             showToast('✅ 교과 리소스가 추가되었습니다.');
         } catch (error) {
@@ -1555,6 +1672,51 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 console.error("Error deleting resource:", error);
                 showToast("리소스 삭제 중 오류가 발생했습니다.");
             }
+        }
+    };
+
+    const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
+
+    const handleEditResource = (res: SubjectResource) => {
+        setResourceForm({
+            subjectName: res.subjectName,
+            publisher: res.publisher || '',
+            linkLabel: res.links[0]?.label || '',
+            linkUrl: res.links[0]?.url || '',
+            tableOfContents: res.tableOfContents || ''
+        });
+        setEditingResourceId(res.id);
+        setShowResourceForm(true);
+        // 폼 위치로 스크롤
+        window.scrollTo({ top: 300, behavior: 'smooth' });
+    };
+
+    const handleUpdateResource = async () => {
+        if (!editingResourceId) return;
+        if (!resourceForm.subjectName) {
+            showToast('⚠️ 과목명을 입력하세요.');
+            return;
+        }
+
+        try {
+            const links = resourceForm.linkLabel && resourceForm.linkUrl ? [{ label: resourceForm.linkLabel, url: resourceForm.linkUrl }] : [];
+            const updatedData: Partial<SubjectResource> = {
+                subjectName: resourceForm.subjectName,
+                publisher: resourceForm.publisher,
+                tableOfContents: resourceForm.tableOfContents,
+                links,
+            };
+
+            await studentService.updateResource(editingResourceId, updatedData);
+            setResources(resources.map(r => r.id === editingResourceId ? { ...r, ...updatedData } : r));
+            
+            showToast('✅ 리소스가 수정되었습니다.');
+            setEditingResourceId(null);
+            setResourceForm({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '', tableOfContents: '' });
+            setShowResourceForm(false);
+        } catch (error) {
+            console.error("Error updating resource:", error);
+            showToast("리소스 수정 중 오류가 발생했습니다.");
         }
     };
 
@@ -1856,7 +2018,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
                         {memos.map((memo) => (
-                            <div key={memo.id} className="card" style={{ borderLeft: '3px solid var(--primary-500)' }}>
+                            <div key={memo.id} id={`memo-${memo.id}`} className="card" style={{ borderLeft: '3px solid var(--primary-500)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }}>
                                     <span className="tag tag-green">{memo.category}</span>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
@@ -2063,7 +2225,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 <thead><tr><th>파일명</th><th>카테고리</th><th>태그</th><th>업로드일</th><th>작업</th></tr></thead>
                                 <tbody>
                                     {files.map((file) => (
-                                        <tr key={file.id} style={{ cursor: 'pointer' }} onClick={() => {
+                                        <tr key={file.id} id={`file-row-${file.id}`} style={{ cursor: 'pointer' }} onClick={() => {
                                             setSelectedFileForDetail(file);
                                             setEditingFileMemoValue(file.summary || '');
                                             setIsEditingFileMemo(false);
@@ -2389,7 +2551,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.memo || '-'}</td>
                                         <td>
                                             {userRole !== 'manager' && (
-                                                <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteBook(book.id)} style={{ color: 'var(--danger-400)' }}><Trash2 size={16} /></button>
+                                                <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteBook(book.id)} style={{ color: 'var(--danger-400)', fontSize: '0.72rem' }}>✕</button>
                                             )}
                                         </td>
                                     </tr>
@@ -2410,42 +2572,99 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     </div>
 
                     {showResourceForm && (
-                        <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-sm)' }}>
-                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">과목명 *</label><input className="form-input" placeholder="예: 물리학Ⅱ" value={resourceForm.subjectName} onChange={(e) => setResourceForm({ ...resourceForm, subjectName: e.target.value })} /></div>
-                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">출판사</label><input className="form-input" placeholder="예: 비상교육" value={resourceForm.publisher} onChange={(e) => setResourceForm({ ...resourceForm, publisher: e.target.value })} /></div>
-                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">링크 이름</label><input className="form-input" placeholder="예: EBS 강의" value={resourceForm.linkLabel} onChange={(e) => setResourceForm({ ...resourceForm, linkLabel: e.target.value })} /></div>
-                                <div className="form-group" style={{ marginBottom: 0 }}><label className="form-label">링크 URL</label><input className="form-input" placeholder="https://..." value={resourceForm.linkUrl} onChange={(e) => setResourceForm({ ...resourceForm, linkUrl: e.target.value })} /></div>
+                        <div className="card" style={{ marginBottom: 'var(--space-lg)', borderTop: '4px solid var(--primary-500)' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-md)' }}>
+                                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                                    <label className="form-label">학습 리소스 URL</label>
+                                    <input className="form-input" placeholder="학습 페이지 또는 교과서 소개 URL (https://...)" value={resourceForm.linkUrl} onChange={(e) => setResourceForm({ ...resourceForm, linkUrl: e.target.value })} />
+                                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>참고할 수 있는 웹 페이지 주소를 입력하세요.</p>
+                                </div>
+                                <div className="form-group"><label className="form-label">과목명 *</label><input className="form-input" placeholder="예: 물리학Ⅱ" value={resourceForm.subjectName} onChange={(e) => setResourceForm({ ...resourceForm, subjectName: e.target.value })} /></div>
+                                <div className="form-group"><label className="form-label">출판사</label><input className="form-input" placeholder="예: 비상교육" value={resourceForm.publisher} onChange={(e) => setResourceForm({ ...resourceForm, publisher: e.target.value })} /></div>
+                                <div className="form-group"><label className="form-label">링크 이름</label><input className="form-input" placeholder="예: EBS 수능특강 물리학Ⅱ" value={resourceForm.linkLabel} onChange={(e) => setResourceForm({ ...resourceForm, linkLabel: e.target.value })} /></div>
+                                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label className="form-label" style={{ marginBottom: 0 }}>교과 목차 (복사해서 붙여넣으세요)</label>
+                                        <button 
+                                            className="btn btn-secondary btn-sm" 
+                                            onClick={handleFormatToc} 
+                                            disabled={isAnalyzingUrl || !resourceForm.tableOfContents}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                                        >
+                                            {isAnalyzingUrl ? <Loader2 className="spinner" size={14} /> : <Brain size={14} />}
+                                            AI 목차 정문화
+                                        </button>
+                                    </div>
+                                    <textarea 
+                                        className="form-input" 
+                                        placeholder="알라딘 등에서 복사한 목차 내용을 그대로 붙여넣으세요. 'AI 목차 정문화'를 누르면 검색하기 좋게 자동 정리됩니다." 
+                                        rows={12}
+                                        value={resourceForm.tableOfContents} 
+                                        onChange={(e) => setResourceForm({ ...resourceForm, tableOfContents: e.target.value })}
+                                        style={{ resize: 'vertical', fontSize: '0.85rem' }}
+                                    />
+                                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>목차를 정형화해두면 나중에 AI 검색으로 해당 교과 리소스를 쉽게 찾을 수 있습니다.</p>
+                                </div>
                             </div>
-                            <button className="btn btn-primary btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={handleSaveResource}>저장</button>
+                            <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-md)' }}>
+                                <button className="btn btn-primary" onClick={handleSaveResource} style={{ flex: 1 }}>저장</button>
+                                <button className="btn btn-ghost" onClick={() => setShowResourceForm(false)}>취소</button>
+                            </div>
                         </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-md)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 'var(--space-lg)' }}>
                         {resources.map((res) => (
-                            <div key={res.id} className="card" style={{ borderLeft: '3px solid var(--primary-500)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }}>
-                                    <h4 style={{ fontWeight: 700, fontSize: '1rem' }}>{res.subjectName}</h4>
-                                    {userRole !== 'manager' && (
-                                        <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteResource(res.id)} style={{ color: 'var(--danger-400)', fontSize: '0.72rem' }}>✕</button>
-                                    )}
+                            <div key={res.id} className="card" style={{ borderLeft: '4px solid var(--primary-500)', padding: 'var(--space-lg)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-md)' }}>
+                                    <div>
+                                        <h4 style={{ fontWeight: 800, fontSize: '1.2rem', marginBottom: '4px' }}>{res.subjectName}</h4>
+                                        {res.publisher && <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>📖 출판사: {res.publisher}</div>}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        {userRole !== 'manager' && (
+                                            <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteResource(res.id)} style={{ color: 'var(--danger-400)' }} title="삭제">
+                                                <Trash2 size={18} />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                                {res.publisher && <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>📖 출판사: {res.publisher}</div>}
-                                {res.links.length > 0 && (
-                                    <div style={{ marginBottom: 'var(--space-sm)' }}>
-                                        {res.links.map((link, i) => (
-                                            <a key={i} href={link.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontSize: '0.82rem', color: 'var(--primary-400)', marginBottom: '4px' }}><LinkIcon size={14} style={{ display: 'inline', marginRight: '4px' }} /> {link.label}</a>
-                                        ))}
+                                
+                                {res.tableOfContents && (
+                                    <div style={{ marginBottom: 'var(--space-md)' }}>
+                                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <Clipboard size={14} /> 교과 목차
+                                        </div>
+                                        <div style={{ 
+                                            background: 'rgba(30, 41, 59, 0.4)', 
+                                            padding: 'var(--space-md)', 
+                                            borderRadius: 'var(--radius-md)', 
+                                            fontSize: '0.9rem', 
+                                            color: 'var(--text-secondary)',
+                                            whiteSpace: 'pre-wrap',
+                                            lineHeight: 1.6,
+                                            border: '1px solid rgba(255, 255, 255, 0.05)',
+                                            maxHeight: '400px',
+                                            overflowY: 'auto'
+                                        }}>
+                                            {res.tableOfContents}
+                                        </div>
                                     </div>
                                 )}
-                                {res.links.length === 0 && res.files.length === 0 && <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>등록된 링크/파일이 없습니다.</p>}
+
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-sm)', fontSize: '0.85rem' }}>
+                                    {res.links.length > 0 ? res.links.map((link, idx) => (
+                                        <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ color: 'var(--primary-400)' }}>
+                                            <ExternalLink size={14} style={{ marginRight: '4px' }} /> {link.label || '학습 링크'}
+                                        </a>
+                                    )) : <span style={{ color: 'var(--text-muted)' }}>등록된 링크/파일이 없습니다.</span>}
+                                </div>
                             </div>
                         ))}
                     </div>
                     {resources.length === 0 && <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}><p style={{ color: 'var(--text-muted)' }}>등록된 교과 리소스가 없습니다.</p></div>}
                 </div>
             )}
-
             {/* ===== ANALYSIS TAB ===== */}
             {activeTab === 'analysis' && (
                 <div className="grid-2" style={{ gap: 'var(--space-lg)' }}>
@@ -2510,11 +2729,28 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-md)' }}>
                                 <h5 style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 'var(--space-sm)' }}>출처</h5>
                                 {searchResult.sources.map((src, idx) => (
-                                    <div key={idx} style={{ display: 'flex', gap: 'var(--space-sm)', alignItems: 'center', marginBottom: '6px' }}>
+                                    <a 
+                                        key={idx} 
+                                        href={src.url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="activity-item-clickable"
+                                        style={{ 
+                                            display: 'flex', 
+                                            gap: 'var(--space-sm)', 
+                                            alignItems: 'center', 
+                                            marginBottom: '6px',
+                                            textDecoration: 'none',
+                                            padding: '4px 8px',
+                                            borderRadius: 'var(--radius-sm)',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
                                         <span className="badge badge-blue">{idx + 1}</span>
-                                        <span style={{ fontSize: '0.82rem' }}>{src.text}</span>
+                                        <span style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>{src.text}</span>
                                         <span className="tag tag-gray" style={{ fontSize: '0.68rem' }}>{src.category}</span>
-                                    </div>
+                                        <ExternalLink size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />
+                                    </a>
                                 ))}
                             </div>
                             <button className="btn btn-ghost btn-sm" style={{ marginTop: 'var(--space-md)' }} onClick={() => setSearchResult(null)}>새 검색</button>

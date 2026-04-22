@@ -220,6 +220,11 @@ export const studentService = {
         return docRef.id;
     },
 
+    async updateResource(id: string, updates: Partial<SubjectResource>): Promise<void> {
+        const docRef = doc(db, 'resources', id);
+        await updateDoc(docRef, updates);
+    },
+
     async deleteResource(id: string): Promise<void> {
         await deleteDoc(doc(db, 'resources', id));
     }

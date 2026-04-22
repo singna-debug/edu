@@ -129,6 +129,7 @@ export interface SubjectResource {
     studentId: string;
     subjectName: string;       // 과목명
     publisher?: string;        // 출판사
+    tableOfContents?: string;  // 목차
     links: { label: string; url: string }[];  // 학습 링크
     files: { name: string; url: string }[];   // 참고 파일
 }

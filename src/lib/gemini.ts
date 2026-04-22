@@ -275,3 +275,66 @@ export async function analyzeTimetableImage(base64Data: string, mimeType: string
 
     return analyzeImage<Record<string, string[]>>(base64Data, mimeType, prompt);
 }
+
+/**
+ * 웹 페이지 내용에서 교과 목차 및 정보 추출
+ */
+export async function analyzeWebResource(html: string) {
+    // HTML 정제: 스크립트, 스타일, SVG, iframe 등 분석에 불필요한 태그 제거 및 공백 최적화
+    const cleanedHtml = html
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+        .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+        .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 150000); // 15만 자로 확장
+
+    const prompt = `다음 웹 페이지의 HTML 내용을 분석하여 교과 리소스 정보(과목명, 출판사, 목차)를 JSON으로 추출하시오.
+    분석할 내용:
+    ${cleanedHtml}
+
+    [JSON 가이드라인]
+    1. 과목명(subjectName): 가장 적합한 과목명을 추출하시오. (예: 물리학Ⅱ, 미적분)
+    2. 출판사(publisher): 출판사명을 추출하시오. (예: 비상교육, 더퀘스트)
+    3. 목차(tableOfContents): 대단원, 중단원 등을 포함한 상세 목차를 사람이 읽기 좋은 텍스트 형식으로 추출하시오. (줄바꿈 포함)
+    
+    * 쇼핑몰(알라딘 등) 페이지의 경우, 제품 상세 설명이나 메타데이터에 포함된 목차 정보를 집중적으로 찾으시오.
+
+    구조:
+    {
+      "subjectName": "과목명",
+      "publisher": "출판사명",
+      "tableOfContents": "1. 역학적 에너지\\n  - 운동 에너지...\\n2. 열역학..."
+    }
+
+    위 형식을 완벽하게 따르는 순수 JSON만 응답하시오.`;
+
+    return generateJSON<{ subjectName: string; publisher: string; tableOfContents: string }>(prompt);
+}
+
+/**
+ * 사용자가 입력한 날 것의 목차 텍스트를 AI 검색에 최적화된 형식으로 정형화
+ */
+export async function formatTocWithAI(rawText: string) {
+    const prompt = `다음은 사용자가 도서 또는 학습 리소스에서 복사한 정제되지 않은 목차 데이터이다. 
+    이를 분석하여 AI 검색이 용이하도록 대단원, 중단원, 핵심 키워드가 포함된 깔끔한 구조로 정형화하여 응답하라.
+
+    분석할 텍스트:
+    ${rawText.substring(0, 8000)}
+
+    [정형화 가이드라인]
+    1. 계층 구조 유지: 대단원(Ⅰ, Ⅱ...), 중단원(1, 2...), 소단원 순으로 줄바꿈을 사용하여 정리하라.
+    2. 불필요한 정보 제거: 페이지 번호, 저작권 문구, 광고성 멘트 등은 모두 삭제하라.
+    3. 검색 최적화: 각 단원 뒤에 해당 단원에서 다루는 주요 과학적/학술적 핵심 키워드를 괄호() 안에 추가하라.
+    4. 가독성: 불필요한 특수문자는 제거하고 사람이 읽기 좋게 들여쓰기를 활용하라.
+
+    [응답 형식]
+    {
+      "formattedToc": "정형화된 목차 텍스트 (줄바꿈 포함)"
+    }
+
+    위 형식을 완벽하게 따르는 순수 JSON만 응답하라.`;
+
+    return generateJSON<{ formattedToc: string }>(prompt);
+}
