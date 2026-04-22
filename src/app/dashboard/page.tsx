@@ -138,7 +138,9 @@ export default function DashboardPage() {
         }
 
         const user = auth.currentUser;
-        if (user) {
+        const parentId = localStorage.getItem('parentId');
+        
+        if (user && parentId) {
             try {
                 // [보안] 승인 여부 실시간 재확인
                 const { consultantService } = await import('@/lib/services/consultantService');
@@ -154,7 +156,7 @@ export default function DashboardPage() {
                     }
                 }
 
-                const fetchedStudents = await studentService.getStudents(user.uid);
+                const fetchedStudents = await studentService.getStudents(parentId);
                 setStudents(fetchedStudents);
 
                 // Fetch latest memos and files for all these students
