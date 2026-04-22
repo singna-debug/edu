@@ -95,13 +95,15 @@ export async function POST(req: NextRequest) {
                     console.log(`[Upload] Ensuring path for category: ${category}`);
                     // 1. 카테고리 폴더 확보 (학생루트 > 카테고리)
                     const categoryFolderId = await driveService.getOrCreateFolder(category, tokens, consultantId, studentRootId);
-                    currentParentId = categoryFolderId;
+                    if (categoryFolderId) {
+                        currentParentId = categoryFolderId;
 
-                    // 2. 서브폴더가 있는 경우 (학생루트 > 카테고리 > 서브폴더)
-                    if (folderId && folderId !== 'root') {
-                        // folderId가 사실은 폴더 이름일 경우를 대비해 처리 (또는 UI에서 넘겨준 이름 사용)
-                        const subfolderName = formData.get('folderName') as string || '기타';
-                        currentParentId = await driveService.getOrCreateFolder(subfolderName, tokens, consultantId, categoryFolderId);
+                        // 2. 서브폴더가 있는 경우 (학생루트 > 카테고리 > 서브폴더)
+                        if (folderId && folderId !== 'root') {
+                            const subfolderName = formData.get('folderName') as string || '기타';
+                            const subfolderId = await driveService.getOrCreateFolder(subfolderName, tokens, consultantId, categoryFolderId);
+                            if (subfolderId) currentParentId = subfolderId;
+                        }
                     }
                 }
             } catch (pathErr) {
