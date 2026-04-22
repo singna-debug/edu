@@ -21,11 +21,12 @@ export default function LoginPage() {
       
       // 구글 드라이브 권한 추가 (SaaS 모델 전환)
       provider.addScope('https://www.googleapis.com/auth/drive.file');
-      
-      // 리프레시 토큰을 받기 위한 파라미터 설정 (명시적 동의 요청 포함)
-      provider.setCustomParameters({ 
-        access_type: 'offline',
-        prompt: 'consent'
+      provider.addScope('https://www.googleapis.com/auth/drive');
+
+      // [중요] Refresh Token을 확실히 받기 위해 동의 화면을 강제로 띄웁니다.
+      provider.setCustomParameters({
+        prompt: 'consent',
+        access_type: 'offline'
       });
 
       const result = await signInWithPopup(auth, provider);
