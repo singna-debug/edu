@@ -55,20 +55,24 @@ async function getDriveClient(accessToken?: string, refreshToken?: string, consu
     
     if (isRealGoogleRefreshToken) {
         try {
-            console.log(`[Drive] Refreshing token for consultant ${consultantId}... (Prefix: ${refreshToken.substring(0, 10)})`);
+            console.log(`[Drive] Using Consultant Refresh Token: ${consultantId}`);
             oauth2Client.setCredentials({ refresh_token: refreshToken });
             const { token } = await oauth2Client.getAccessToken();
             if (token) {
                 oauth2Client.setCredentials({ access_token: token });
+                console.log(`[Drive] Token Refreshed Successfully for: ${consultantId}`);
             }
         } catch (err: any) {
             console.error(`[Drive] Refresh Failed for ${consultantId}:`, err.message);
         }
-    } else if (!isRealGoogleAccessToken) {
-        // [핵심 수정] 개인 토큰이 아예 없거나 유효하지 않으면 서버 전역 토큰(폴백) 사용
+    } else if (isRealGoogleAccessToken) {
+        console.log(`[Drive] Using Existing Consultant Access Token: ${consultantId}`);
+        oauth2Client.setCredentials({ access_token: accessToken });
+    } else {
+        // [핵심] 대표님의 토큰이 아예 없는 경우에만 서버 전역 폴백 사용
         const envRefreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
-        if (envRefreshToken && envRefreshToken.startsWith('1/')) {
-            console.log(`[Drive] Using Global Fallback Refresh Token (Consultant: ${consultantId})`);
+        if (envRefreshToken && envRefreshToken.length > 10) {
+            console.log(`[Drive] !!! WARNING !!! No consultant tokens found. Falling back to Global Server Drive for: ${consultantId}`);
             oauth2Client.setCredentials({ refresh_token: envRefreshToken });
             try {
                 const { token } = await oauth2Client.getAccessToken();
@@ -77,7 +81,7 @@ async function getDriveClient(accessToken?: string, refreshToken?: string, consu
                 console.error('[Drive] Global Fallback Token also failed:', err.message);
             }
         } else {
-            console.error('[Drive] No valid tokens found in DB or ENV. Consultant:', consultantId);
+            console.error('[Drive] CRITICAL: No valid tokens found anywhere. Drive sync will fail for:', consultantId);
         }
     }
 

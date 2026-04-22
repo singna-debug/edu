@@ -50,16 +50,19 @@ export async function POST(req: NextRequest) {
                 const acc = data?.google_access_token;
                 const ref = data?.google_refresh_token;
 
-                console.log(`[Upload] Consultant: ${consultantId}, Found Tokens: Acc(${!!acc}), Ref(${!!ref})`);
+                const hasAcc = (acc && acc !== 'undefined' && acc.length > 10);
+                const hasRef = (ref && ref !== 'undefined' && ref.length > 10);
 
-                if ((acc && acc !== 'undefined') || (ref && ref !== 'undefined')) {
+                console.log(`[Upload] Consultant: ${consultantId} | DB Tokens: Access(${hasAcc}), Refresh(${hasRef})`);
+
+                if (hasAcc || hasRef) {
                     tokens = {
-                        accessToken: (acc && acc !== 'undefined') ? acc : undefined,
-                        refreshToken: (ref && ref !== 'undefined') ? ref : undefined
+                        accessToken: hasAcc ? acc : undefined,
+                        refreshToken: hasRef ? ref : undefined
                     };
                 }
             } else {
-                console.warn(`[Upload] Consultant document not found: ${consultantId}`);
+                console.warn(`[Upload] Consultant document not found in DB: ${consultantId}`);
             }
         }
 
