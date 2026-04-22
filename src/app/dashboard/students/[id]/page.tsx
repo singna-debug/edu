@@ -139,6 +139,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     const [showResourceForm, setShowResourceForm] = useState(false);
     const [resourceForm, setResourceForm] = useState({ subjectName: '', publisher: '', linkLabel: '', linkUrl: '', tableOfContents: '' });
     const [isAnalyzingUrl, setIsAnalyzingUrl] = useState(false);
+    const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
 
     // Mind map state
     const [selectedSemester, setSelectedSemester] = useState('1-1');
@@ -1675,7 +1676,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         }
     };
 
-    const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
 
     const handleEditResource = (res: SubjectResource) => {
         setResourceForm({
