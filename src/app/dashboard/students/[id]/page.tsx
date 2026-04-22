@@ -2653,7 +2653,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 )}
 
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-sm)', fontSize: '0.85rem' }}>
-                                    {res.links.length > 0 ? res.links.map((link, idx) => (
+                                    {res.links && res.links.length > 0 ? res.links.map((link, idx) => (
                                         <a key={idx} href={link.url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ color: 'var(--primary-400)' }}>
                                             <ExternalLink size={14} style={{ marginRight: '4px' }} /> {link.label || '학습 링크'}
                                         </a>
