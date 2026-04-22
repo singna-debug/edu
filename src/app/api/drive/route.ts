@@ -14,10 +14,16 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const { action, name, parentId, fileId, oldParentId, newParentId, consultantId } = body;
         
-        // 보안 검증: 토큰의 UID가 요청 본문의 consultantId와 일치해야 함
+        // [중요] 권한 체크: 본인이거나 초대된 조교인 경우 허용
         if (consultantId && decodedToken.uid !== consultantId) {
-            console.error('[API Drive] Consultant ID mismatch:', { tokenUid: decodedToken.uid, bodyId: consultantId });
-            return NextResponse.json({ success: false, error: '본인의 데이터만 수정할 수 있습니다.' }, { status: 403 });
+            const dbRef = getDb();
+            const managerDoc = await dbRef.collection('managers').doc(decodedToken.email || '').get();
+            const managerData = managerDoc.data();
+            
+            if (!managerDoc.exists || managerData?.parentId !== consultantId) {
+                console.error('[API Drive] Forbidden access:', { tokenEmail: decodedToken.email, targetConsultant: consultantId });
+                return NextResponse.json({ success: false, error: '본인 또는 소속된 대표님의 데이터만 수정할 수 있습니다.' }, { status: 403 });
+            }
         }
 
         // 컨설턴트의 구글 드라이브 토큰 가져오기 (SaaS 연동)

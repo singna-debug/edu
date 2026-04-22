@@ -18,14 +18,23 @@ export async function POST(req: NextRequest) {
         const studentId = formData.get('studentId') as string;
         const consultantId = formData.get('consultantId') as string;
         
-        if (consultantId && decodedToken.uid !== consultantId) {
-            return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
-        }
-
         const category = formData.get('category') as string;
         const semester = formData.get('semester') as string;
         const folderId = formData.get('folderId') as string || undefined;
         const driveParentId = formData.get('driveParentId') as string || undefined;
+
+        // [중요] 권한 체크: 본인이거나 초대된 조교인 경우 허용
+        if (consultantId && decodedToken.uid !== consultantId) {
+            const dbRef = getDb();
+            const managerDoc = await dbRef.collection('managers').doc(decodedToken.email || '').get();
+            const managerData = managerDoc.data();
+            
+            // 조교 명단에 있고, 부모 ID가 요청한 consultantId와 일치하는지 확인
+            if (!managerDoc.exists || managerData?.parentId !== consultantId) {
+                return NextResponse.json({ success: false, error: 'Forbidden: You do not have permission to upload for this consultant' }, { status: 403 });
+            }
+            console.log(`[Upload] Manager ${decodedToken.email} authorized for consultant ${consultantId}`);
+        }
 
         if (!file || !studentId || !category) {
             return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
