@@ -30,13 +30,10 @@ export default function LoginPage() {
 
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      
-      // 구글 자격 증명 추출 (액세스 토큰 포함)
       const credential = GoogleAuthProvider.credentialFromResult(result);
       
-      // 1. 대표(Consultant) 계정 정보 저장 및 업데이트 (새 로그인이거나 토큰 갱신 시)
+      // 1. 토큰 저장 (있을 경우에만)
       if (credential?.accessToken) {
-        // Ensure we get the REAL Google Refresh Token
         const tokenResponse = (result as any)._tokenResponse;
         const googleRefreshToken = tokenResponse?.oauthRefreshToken || undefined;
 
@@ -46,29 +43,29 @@ export default function LoginPage() {
           photo_url: user.photoURL || '',
           google_access_token: credential.accessToken,
           google_refresh_token: googleRefreshToken,
-          google_token_expiry: Date.now() + 3500 * 1000 // 1시간보다 약간 짧게
+          google_token_expiry: Date.now() + 3500 * 1000
         });
-        
-        // 1. 먼저 조교(manager)로 초대받았는지 최우선 확인
-        const managerData = await consultantService.findManagerByEmail(user.email || '');
-        if (managerData) {
+      }
+
+      // 2. 권한 확인 (최우선: 조교 -> 컨설턴트)
+      const managerData = await consultantService.findManagerByEmail(user.email || '');
+      if (managerData) {
+        setIsApproved(true);
+        localStorage.setItem('role', 'manager');
+        localStorage.setItem('parentId', managerData.parentId);
+      } else {
+        const consultantData = await consultantService.getConsultant(user.uid);
+        if (consultantData?.approved) {
           setIsApproved(true);
-          localStorage.setItem('role', 'manager');
-          localStorage.setItem('parentId', managerData.parentId);
+          localStorage.setItem('role', 'consultant');
+          localStorage.setItem('parentId', user.uid);
         } else {
-          // 2. 조교가 아니라면 컨설턴트 승인 여부 확인
-          const consultantData = await consultantService.getConsultant(user.uid);
-          if (consultantData?.approved) {
-            setIsApproved(true);
-            localStorage.setItem('role', 'consultant');
-            localStorage.setItem('parentId', user.uid);
-          } else {
-            setIsApproved(false);
-            setUserEmailState(user.email || '');
-            setIsLoading(false);
-            return;
-          }
+          setIsApproved(false);
+          setUserEmailState(user.email || '');
+          setIsLoading(false);
+          return;
         }
+      }
 
       localStorage.setItem('userId', user.uid);
       localStorage.setItem('userName', user.displayName || '');
