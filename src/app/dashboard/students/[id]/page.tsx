@@ -1163,6 +1163,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     if (targetFolder?.driveFolderId) {
                         formData.append('driveParentId', targetFolder.driveFolderId);
                     }
+                    if (targetFolder?.name) {
+                        formData.append('folderName', targetFolder.name);
+                    }
                 } else {
                     const driveParentId = await ensureDrivePath(finalCategory, cId);
                     if (driveParentId) {

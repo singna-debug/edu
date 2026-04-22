@@ -80,38 +80,45 @@ export async function POST(req: NextRequest) {
         // const gcsUri = await uploadToGcs(buffer, gcsPath, contentType);
         const gcsPath = ""; 
 
-        // [중요 수정] 드라이브 부모 폴더 ID가 비어있을 경우, 학생의 기본 루트 폴더를 Firestore에서 조회하여 보완
-        let finalDriveParentId = driveParentId;
-        if (!finalDriveParentId && studentId) {
-            const dbRef = getDb();
+        // [경로 자동 생성 로직 강화]
+        // 목표 구조: 학생루트(학생명_학교명) > 카테고리(교과활동 등) > [선택적 서브폴더] > 파일
+        let currentParentId = driveParentId;
+
+        if (tokens && studentId) {
             try {
+                const dbRef = getDb();
                 const studentDoc = await dbRef.collection('students').doc(studentId).get();
-                if (studentDoc.exists) {
-                    finalDriveParentId = studentDoc.data()?.driveFolderId;
-                    if (finalDriveParentId) {
-                        console.log(`[Upload] Using Student Root Folder as fallback: ${finalDriveParentId}`);
+                const studentData = studentDoc.data();
+                const studentRootId = studentData?.driveFolderId;
+                
+                if (studentRootId) {
+                    console.log(`[Upload] Ensuring path for category: ${category}`);
+                    // 1. 카테고리 폴더 확보 (학생루트 > 카테고리)
+                    const categoryFolderId = await driveService.getOrCreateFolder(category, tokens, consultantId, studentRootId);
+                    currentParentId = categoryFolderId;
+
+                    // 2. 서브폴더가 있는 경우 (학생루트 > 카테고리 > 서브폴더)
+                    if (folderId && folderId !== 'root') {
+                        // folderId가 사실은 폴더 이름일 경우를 대비해 처리 (또는 UI에서 넘겨준 이름 사용)
+                        const subfolderName = formData.get('folderName') as string || '기타';
+                        currentParentId = await driveService.getOrCreateFolder(subfolderName, tokens, consultantId, categoryFolderId);
                     }
                 }
-            } catch (err) {
-                console.error("[Upload] Error fetching student root folder fallback:", err);
+            } catch (pathErr) {
+                console.error("[Upload] Path creation failed, falling back to driveParentId:", pathErr);
             }
         }
 
-        // 2. 해당 컨설턴트의 개인 구글 드라이브에 업로드 (백그라운드 비동기 처리 - 속도 향상)
+        // 2. 해당 컨설턴트의 개인 구글 드라이브에 업로드
         let driveFileId = '';
-        const driveError: string | null = null;
-        
-        // [핵심] 드라이브 업로드를 기다리지 않고 비동기로 실행 (Fire and forget if needed for UI speed)
-        // 하지만 ID를 저장하려면 기다려야 하므로, 여기서는 최대한 빠르게 시도하고 실패 시 로그만 남김
         try {
             if (tokens) {
-                console.log(`[Upload] Triggering Async Drive Sync for: ${consultantId}`);
-                // [참고] 일부러 await를 하지만, 업로드 도중 에러가 나더라도 Firestore 저장은 막지 않음
-                driveFileId = await driveService.uploadFile(fileName, buffer, contentType, tokens, consultantId, finalDriveParentId);
+                console.log(`[Upload] Uploading to Drive: ${fileName} in Parent: ${currentParentId}`);
+                driveFileId = await driveService.uploadFile(fileName, buffer, contentType, tokens, consultantId, currentParentId);
                 console.log(`[Upload] Drive Sync Success: ${driveFileId}`);
             }
         } catch (err: any) {
-            console.error(`[Upload] Drive Sync error (background): ${err.message}`);
+            console.error(`[Upload] Drive Sync error: ${err.message}`);
         }
 
         // AI 분석 없이 즉시 텍스트(메타데이터)만Firestore 저장
