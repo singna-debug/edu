@@ -305,13 +305,13 @@ export default function SettingsPage() {
                 )}
 
                 {/* Pending Approvals - Master Admin Section */}
-                {userRole === 'consultant' && pendingConsultants.length > 0 && (
-                    <div className="card" style={{ border: '1px solid var(--warning-600)', background: 'rgba(245, 158, 11, 0.02)' }}>
+                {userRole === 'consultant' && (
+                    <div className="card" style={{ border: '1px solid var(--warning-600)', background: 'rgba(245, 158, 11, 0.02)', marginBottom: 'var(--space-lg)' }}>
                         <h3 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--warning-400)' }}>
-                            <Mail size={18} /> 가입 승인 대기 목록
+                            <Mail size={18} /> 가입 승인 관리
                         </h3>
                         <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-md)' }}>
-                            신규 가입한 컨설턴트의 접근 권한을 승인합니다.
+                            신규 가입한 컨설턴트의 접근 권한을 승인합니다. 조교(매니저)는 초대 시 자동 승인됩니다.
                         </p>
                         
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
@@ -319,7 +319,7 @@ export default function SettingsPage() {
                                 <div style={{ textAlign: 'center', padding: 'var(--space-md)' }}>
                                     <Loader2 className="spinner" size={20} style={{ margin: '0 auto', opacity: 0.5 }} />
                                 </div>
-                            ) : (
+                            ) : pendingConsultants.length > 0 ? (
                                 pendingConsultants.map((cp) => (
                                     <div key={cp.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-md)', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
                                         <div>
@@ -335,6 +335,10 @@ export default function SettingsPage() {
                                         </button>
                                     </div>
                                 ))
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: 'var(--space-lg)', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                                    <p className="text-sm text-muted">현재 승인 대기 중인 사용자가 없습니다.</p>
+                                </div>
                             )}
                         </div>
                     </div>

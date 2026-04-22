@@ -49,47 +49,26 @@ export default function LoginPage() {
           google_token_expiry: Date.now() + 3500 * 1000 // 1시간보다 약간 짧게
         });
         
-        // 승인 여부 바로 확인
-        const consultantData = await consultantService.getConsultant(user.uid);
-        if (consultantData?.approved) {
+        // 1. 먼저 조교(manager)로 초대받았는지 최우선 확인
+        const managerData = await consultantService.findManagerByEmail(user.email || '');
+        if (managerData) {
           setIsApproved(true);
-          localStorage.setItem('role', 'consultant');
-          localStorage.setItem('parentId', user.uid);
+          localStorage.setItem('role', 'manager');
+          localStorage.setItem('parentId', managerData.parentId);
         } else {
-          // 승인이 안 된 경우, 조교(manager)로 초대받았는지 확인
-          const managerData = await consultantService.findManagerByEmail(user.email || '');
-          if (managerData) {
+          // 2. 조교가 아니라면 컨설턴트 승인 여부 확인
+          const consultantData = await consultantService.getConsultant(user.uid);
+          if (consultantData?.approved) {
             setIsApproved(true);
-            localStorage.setItem('role', 'manager');
-            localStorage.setItem('parentId', managerData.parentId);
-          } else {
-            setIsApproved(false);
-            setUserEmailState(user.email || '');
-            setIsLoading(false);
-            return; // 승인 대기 상태로 유지
-          }
-        }
-      } else {
-        // 토큰이 없는 경우 (기존 로그인), 승인 여부와 관리자 여부 확인
-        const consultantData = await consultantService.getConsultant(user.uid);
-        if (!consultantData?.approved) {
-          const managerData = await consultantService.findManagerByEmail(user.email || '');
-          if (managerData) {
-            setIsApproved(true);
-            localStorage.setItem('role', 'manager');
-            localStorage.setItem('parentId', managerData.parentId);
+            localStorage.setItem('role', 'consultant');
+            localStorage.setItem('parentId', user.uid);
           } else {
             setIsApproved(false);
             setUserEmailState(user.email || '');
             setIsLoading(false);
             return;
           }
-        } else {
-          setIsApproved(true);
-          localStorage.setItem('role', 'consultant');
-          localStorage.setItem('parentId', user.uid);
         }
-      }
 
       localStorage.setItem('userId', user.uid);
       localStorage.setItem('userName', user.displayName || '');

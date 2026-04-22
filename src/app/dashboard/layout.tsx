@@ -82,16 +82,20 @@ export default function DashboardLayout({
                     console.log("[Dashboard] Missing session data, recovering...");
                     try {
                         const { consultantService } = await import('@/lib/services/consultantService');
-                        const consultantData = await consultantService.getConsultant(user.uid);
                         
-                        if (consultantData?.approved) {
-                            localStorage.setItem('role', 'consultant');
-                            localStorage.setItem('parentId', user.uid);
+                        // 1. 먼저 조교(manager)로 초대받았는지 최우선 확인
+                        const managerData = await consultantService.findManagerByEmail(user.email || '');
+                        if (managerData) {
+                            localStorage.setItem('role', 'manager');
+                            localStorage.setItem('parentId', managerData.parentId);
+                            console.log("[Dashboard] Recovered as Manager");
                         } else {
-                            const managerData = await consultantService.findManagerByEmail(user.email || '');
-                            if (managerData) {
-                                localStorage.setItem('role', 'manager');
-                                localStorage.setItem('parentId', managerData.parentId);
+                            // 2. 조교가 아니라면 컨설턴트 승인 여부 확인
+                            const consultantData = await consultantService.getConsultant(user.uid);
+                            if (consultantData?.approved) {
+                                localStorage.setItem('role', 'consultant');
+                                localStorage.setItem('parentId', user.uid);
+                                console.log("[Dashboard] Recovered as Consultant");
                             }
                         }
                     } catch (err) {
