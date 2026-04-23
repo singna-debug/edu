@@ -80,47 +80,126 @@ export async function POST(req: NextRequest) {
         // const gcsUri = await uploadToGcs(buffer, gcsPath, contentType);
         const gcsPath = ""; 
 
-        // [경로 자동 생성 로직 강화]
-        // 목표 구조: 학생루트(학생명_학교명) > 카테고리(교과활동 등) > [선택적 서브폴더] > 파일
-        let currentParentId = driveParentId;
+        // [경로 자동 생성 로직 - 서버 사이드 강제화 (Bulletproof)]
+        // 프론트엔드의 driveParentId에 의존하지 않고 서버가 무조건 전체 경로를 검증 및 생성합니다.
+        // 목표 구조: EduFlow_Files > 학생루트(학생명_학교명) > 학년 > 학기 > 카테고리 > [선택적 서브폴더] > 파일
+        let currentParentId = (driveParentId === 'undefined' || driveParentId === 'null' || !driveParentId) ? undefined : driveParentId;
 
         if (tokens && studentId) {
             try {
                 const dbRef = getDb();
                 const studentDoc = await dbRef.collection('students').doc(studentId).get();
                 const studentData = studentDoc.data();
-                const studentRootId = studentData?.driveFolderId;
                 
-                if (studentRootId) {
-                    console.log(`[Upload] Ensuring path for category: ${category}`);
-                    // 1. 카테고리 폴더 확보 (학생루트 > 카테고리)
-                    const categoryFolderId = await driveService.getOrCreateFolder(category, tokens, consultantId, studentRootId);
-                    if (categoryFolderId) {
-                        currentParentId = categoryFolderId;
+                if (studentData) {
+                    let studentRootId = studentData.driveFolderId;
+                    const studentName = studentData.name || '이름없음';
+                    const studentSchool = studentData.school || '학교미정';
+                    const GLOBAL_ROOT_NAME = 'EduFlow_Files';
 
-                        // 2. 서브폴더가 있는 경우 (학생루트 > 카테고리 > 서브폴더)
-                        if (folderId && folderId !== 'root') {
-                            const subfolderName = formData.get('folderName') as string || '기타';
-                            const subfolderId = await driveService.getOrCreateFolder(subfolderName, tokens, consultantId, categoryFolderId);
-                            if (subfolderId) currentParentId = subfolderId;
+                    // 1. 글로벌 루트 및 학생 루트 보장
+                    if (!studentRootId || studentRootId === 'undefined' || studentRootId === 'null') {
+                        console.log(`[Upload] Creating missing student root for: ${studentName}`);
+                        const globalRootId = await driveService.getOrCreateFolder(GLOBAL_ROOT_NAME, tokens, consultantId, 'root');
+                        if (globalRootId) {
+                            studentRootId = await driveService.getOrCreateFolder(`${studentName}_${studentSchool}`, tokens, consultantId, globalRootId);
+                            // DB 업데이트 (다음에 또 생성 안 하게)
+                            if (studentRootId) {
+                                await dbRef.collection('students').doc(studentId).update({ driveFolderId: studentRootId });
+                            }
                         }
                     }
+
+                    // 2. 경로 (학년 > 학기 > 카테고리) 서버에서 순차적 보장
+                    let gradeName = "";
+                    let semesterName = "";
+                    
+                    if (semester && semester.includes('학년')) {
+                        const parts = semester.split(' ');
+                        gradeName = parts[0];
+                        semesterName = parts[1];
+                    } else if (semester && semester.includes('-')) {
+                        const [g, s] = semester.split('-');
+                        gradeName = `${g}학년`;
+                        semesterName = `${s}학기`;
+                    } else if (semester) {
+                        gradeName = semester;
+                    }
+
+                    // 빈 값은 필터링하여 유효한 경로 배열 생성
+                    const pathNames = [gradeName, semesterName, category].filter(Boolean);
+                    
+                    let resolvedParentId = studentRootId;
+                    if (resolvedParentId) {
+                        for (const folderName of pathNames) {
+                            resolvedParentId = await driveService.getOrCreateFolder(folderName, tokens, consultantId, resolvedParentId);
+                        }
+                    }
+
+                    // 3. 서브폴더가 있다면 카테고리 폴더 하위에 생성
+                    if (folderId && folderId !== 'root' && folderId !== 'undefined') {
+                        const subfolderName = formData.get('folderName') as string || '기타';
+                        if (resolvedParentId) {
+                            resolvedParentId = await driveService.getOrCreateFolder(subfolderName, tokens, consultantId, resolvedParentId);
+                        }
+                    }
+
+                    // 4. 결정된 최종 부모 ID를 currentParentId로 덮어씀
+                    if (resolvedParentId) {
+                        currentParentId = resolvedParentId;
+                    } else if (!currentParentId) {
+                        // 최후의 폴백: 어떻게든 EduFlow_Files 안에는 넣음
+                        currentParentId = await driveService.getOrCreateFolder(GLOBAL_ROOT_NAME, tokens, consultantId, 'root') as string;
+                    }
                 }
-            } catch (pathErr) {
-                console.error("[Upload] Path creation failed, falling back to driveParentId:", pathErr);
+            } catch (pathErr: any) {
+                console.error("[Upload] Server-side path creation failed:", pathErr);
+                
+                // 자가 치유 로직: 휴지통으로 이동되거나 삭제된 폴더를 참조하여 404 에러가 발생한 경우
+                if ((pathErr.status === 404 || pathErr.code === 404 || pathErr.message?.includes('File not found')) && studentId) {
+                    console.warn(`[Drive Healing] Resetting broken studentRootId for ${studentId}`);
+                    const dbRef = getDb();
+                    await dbRef.collection('students').doc(studentId).update({ driveFolderId: '' });
+                    return NextResponse.json({ 
+                        success: false, 
+                        error: '드라이브 폴더 구조가 손상되어 초기화했습니다. 다시 업로드 버튼을 눌러주세요.' 
+                    }, { status: 400 });
+                }
+                
+                // 그 외의 에러는 그대로 프론트로 던져서 원인을 파악하게 함
+                return NextResponse.json({ 
+                    success: false, 
+                    error: `폴더 생성 실패: ${pathErr.message}` 
+                }, { status: 500 });
             }
+        }
+
+        // [최종 부모 ID 정제] 'undefined' 문자열이 들어가는 것 방지
+        if (currentParentId === 'undefined' || currentParentId === 'null') {
+            currentParentId = undefined;
         }
 
         // 2. 해당 컨설턴트의 개인 구글 드라이브에 업로드
         let driveFileId = '';
-        try {
-            if (tokens) {
+        if (tokens) {
+            if (!currentParentId) {
+                console.error("[Upload] Critical Error: currentParentId is undefined. Aborting Drive upload to prevent saving to root.");
+                return NextResponse.json({ 
+                    success: false, 
+                    error: '드라이브 부모 폴더 ID가 비어있습니다. 폴더 생성 단계를 확인해주세요.' 
+                }, { status: 500 });
+            }
+            try {
                 console.log(`[Upload] Uploading to Drive: ${fileName} in Parent: ${currentParentId}`);
                 driveFileId = await driveService.uploadFile(fileName, buffer, contentType, tokens, consultantId, currentParentId);
                 console.log(`[Upload] Drive Sync Success: ${driveFileId}`);
+            } catch (err: any) {
+                console.error(`[Upload] Drive Sync error: ${err.message}`);
+                return NextResponse.json({ 
+                    success: false, 
+                    error: `파일 업로드 실패: ${err.message}` 
+                }, { status: 500 });
             }
-        } catch (err: any) {
-            console.error(`[Upload] Drive Sync error: ${err.message}`);
         }
 
         // AI 분석 없이 즉시 텍스트(메타데이터)만Firestore 저장

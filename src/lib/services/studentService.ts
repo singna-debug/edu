@@ -9,7 +9,8 @@ import {
     updateDoc, 
     deleteDoc, 
     Timestamp,
-    serverTimestamp
+    serverTimestamp,
+    onSnapshot
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Student, Memo, GradeRecord, StudentFile, BookRecord, FileFolder, SubjectResource } from '../types';
@@ -142,6 +143,17 @@ export const studentService = {
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StudentFile));
     },
 
+    subscribeToFiles(studentId: string, callback: (files: StudentFile[]) => void) {
+        const q = query(
+            collection(db, FILES_COLLECTION),
+            where('studentId', '==', studentId)
+        );
+        return onSnapshot(q, (snapshot: any) => {
+            const files = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as StudentFile));
+            callback(files);
+        });
+    },
+
     async addFile(file: Omit<StudentFile, 'id' | 'uploadedAt'>): Promise<string> {
         const docRef = await addDoc(collection(db, FILES_COLLECTION), {
             ...file,
@@ -167,6 +179,17 @@ export const studentService = {
         );
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FileFolder));
+    },
+
+    subscribeToFolders(studentId: string, callback: (folders: FileFolder[]) => void) {
+        const q = query(
+            collection(db, 'folders'),
+            where('studentId', '==', studentId)
+        );
+        return onSnapshot(q, (snapshot: any) => {
+            const folders = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as FileFolder));
+            callback(folders);
+        });
     },
 
     async addFolder(folder: Omit<FileFolder, 'id'>): Promise<string> {

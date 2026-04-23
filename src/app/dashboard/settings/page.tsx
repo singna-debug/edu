@@ -8,7 +8,7 @@ export default function SettingsPage() {
     const [userName, setUserName] = useState('');
     const [userEmail, setUserEmail] = useState('');
     const [userRole, setUserRole] = useState<'consultant' | 'manager'>('consultant');
-    
+
     // Manager Management State
     const [managers, setManagers] = useState<ManagerData[]>([]);
     const [newManagerEmail, setNewManagerEmail] = useState('');
@@ -59,7 +59,7 @@ export default function SettingsPage() {
         const name = localStorage.getItem('userName');
         const email = localStorage.getItem('userEmail');
         const role = (localStorage.getItem('role') as 'consultant' | 'manager') || 'consultant';
-        
+
         setUserName(name || (mode === 'demo' ? '데모 컨설턴트' : '정식 컨설턴트'));
         setUserEmail(email || (mode === 'demo' ? 'demo@eduflow.ai' : 'consultant@eduflow.ai'));
         setUserRole(role);
@@ -100,7 +100,7 @@ export default function SettingsPage() {
 
     const handleDeleteManager = async (managerEmail: string) => {
         if (!confirm(`${managerEmail} 관리자 권한을 회수하시겠습니까?`)) return;
-        
+
         const userId = localStorage.getItem('userId');
         if (!userId) return;
 
@@ -132,7 +132,7 @@ export default function SettingsPage() {
             const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
             const provider = new GoogleAuthProvider();
             provider.addScope('https://www.googleapis.com/auth/drive.file');
-            provider.setCustomParameters({ 
+            provider.setCustomParameters({
                 access_type: 'offline',
                 prompt: 'consent'
             });
@@ -144,11 +144,11 @@ export default function SettingsPage() {
             if (credential?.accessToken) {
                 // [핵심 수정] Firebase Auth의 ID 토큰이 아니라, Google OAuth용 Access/Refresh Token을 타겟팅
                 const tokenResponse = (result as any)._tokenResponse;
-                
+
                 // Google OAuth2용 실제 토큰들
                 const googleAccessToken = credential.accessToken; // 보통 'ya29.'으로 시작
                 const googleRefreshToken = tokenResponse?.oauthRefreshToken; // '1/'로 시작
-                
+
                 if (!googleRefreshToken) {
                     console.warn("[Auth] No Refresh Token. Ensure 'prompt: consent' is active.");
                 }
@@ -256,12 +256,12 @@ export default function SettingsPage() {
                         <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-md)' }}>
                             직원이나 조교님께 관리자 권한을 부여하세요. 관리자는 파일 등록이 가능하지만 삭제는 제한됩니다.
                         </p>
-                        
+
                         <div style={{ display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-                            <input 
-                                className="form-input" 
-                                style={{ flex: 1 }} 
-                                placeholder="추가할 관리자 이메일 입력" 
+                            <input
+                                className="form-input"
+                                style={{ flex: 1 }}
+                                placeholder="추가할 관리자 이메일 입력"
                                 value={newManagerEmail}
                                 onChange={(e) => setNewManagerEmail(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddManager()}
@@ -285,8 +285,8 @@ export default function SettingsPage() {
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
                                             <span className="badge badge-secondary" style={{ fontSize: '0.7rem' }}>읽기/쓰기 (삭제 불가)</span>
-                                            <button 
-                                                className="btn btn-ghost btn-sm" 
+                                            <button
+                                                className="btn btn-ghost btn-sm"
                                                 style={{ padding: '6px', minWidth: 'auto', color: 'var(--danger-400)' }}
                                                 onClick={() => handleDeleteManager(mgr.email)}
                                             >
@@ -305,29 +305,29 @@ export default function SettingsPage() {
                 )}
 
                 {/* Pending Approvals - Master Admin Section */}
-                {userRole === 'consultant' && (
-                    <div className="card" style={{ border: '1px solid var(--warning-600)', background: 'rgba(245, 158, 11, 0.02)', marginBottom: 'var(--space-lg)' }}>
+                {userRole === 'consultant' && pendingConsultants.length > 0 && (
+                    <div className="card" style={{ border: '1px solid var(--warning-600)', background: 'rgba(245, 158, 11, 0.02)' }}>
                         <h3 className="card-title" style={{ marginBottom: 'var(--space-md)', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--warning-400)' }}>
-                            <Mail size={18} /> 가입 승인 관리
+                            <Mail size={18} /> 가입 승인 대기 목록
                         </h3>
                         <p className="text-sm text-muted" style={{ marginBottom: 'var(--space-md)' }}>
-                            신규 가입한 컨설턴트의 접근 권한을 승인합니다. 조교(매니저)는 초대 시 자동 승인됩니다.
+                            신규 가입한 컨설턴트의 접근 권한을 승인합니다.
                         </p>
-                        
+
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
                             {isLoadingPending ? (
                                 <div style={{ textAlign: 'center', padding: 'var(--space-md)' }}>
                                     <Loader2 className="spinner" size={20} style={{ margin: '0 auto', opacity: 0.5 }} />
                                 </div>
-                            ) : pendingConsultants.length > 0 ? (
+                            ) : (
                                 pendingConsultants.map((cp) => (
                                     <div key={cp.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-md)', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
                                         <div>
                                             <div style={{ fontWeight: 600 }}>{cp.display_name}</div>
                                             <div className="text-xs text-muted" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Mail size={12} /> {cp.email}</div>
                                         </div>
-                                        <button 
-                                            className="btn btn-primary btn-sm" 
+                                        <button
+                                            className="btn btn-primary btn-sm"
                                             style={{ background: 'var(--warning-500)', borderColor: 'var(--warning-600)' }}
                                             onClick={() => handleApproveConsultant(cp.id)}
                                         >
@@ -335,10 +335,6 @@ export default function SettingsPage() {
                                         </button>
                                     </div>
                                 ))
-                            ) : (
-                                <div style={{ textAlign: 'center', padding: 'var(--space-lg)', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.1)' }}>
-                                    <p className="text-sm text-muted">현재 승인 대기 중인 사용자가 없습니다.</p>
-                                </div>
                             )}
                         </div>
                     </div>

@@ -36,7 +36,11 @@ export default function LoginPage() {
       // 1. 토큰 저장 (있을 경우에만)
       if (credential?.accessToken) {
         const tokenResponse = (result as any)._tokenResponse;
+        // [중요 수정] 파이어베이스 refreshToken을 드라이브 토큰으로 오인하여 덮어씌우는 치명적 버그 수정
+        // 오직 실제 구글 드라이브 리프레시 토큰(oauthRefreshToken)만 추출하며, 없으면 undefined로 처리해 DB 덮어쓰기를 방지합니다.
         const googleRefreshToken = tokenResponse?.oauthRefreshToken || undefined;
+
+        console.log("[Auth] Google Login Successful. Refresh Token present:", !!googleRefreshToken);
 
         await consultantService.saveTokens(user.uid, {
           display_name: user.displayName || '컨설턴트',

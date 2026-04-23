@@ -64,6 +64,25 @@ async function getDriveClient(accessToken?: string, refreshToken?: string, consu
             }
         } catch (err: any) {
             console.error(`[Drive] Refresh Failed for ${consultantId}:`, err.message);
+            
+            // 만약 가짜 토큰이거나 권한이 만료되어 invalid_grant가 뜬 경우 DB에서 찌꺼기 청소
+            if (err.message?.includes('invalid_grant') && consultantId) {
+                try {
+                    const db = getDb();
+                    await db.collection('consultants').doc(consultantId).update({
+                        google_refresh_token: ''
+                    });
+                    console.log(`[Drive] Cleared invalid refresh token from DB for: ${consultantId}`);
+                } catch (dbErr) {
+                    console.error('[Drive] Failed to clear invalid token from DB:', dbErr);
+                }
+            }
+
+            // 리프레시가 실패했더라도 현재 싱싱한 단기 엑세스 토큰이 있다면 플랜 B로 엑세스 토큰을 사용해 로직을 살림
+            if (isRealGoogleAccessToken) {
+                console.log(`[Drive] Falling back to Access Token for: ${consultantId}`);
+                oauth2Client.setCredentials({ access_token: accessToken });
+            }
         }
     } else if (isRealGoogleAccessToken) {
         console.log(`[Drive] Using Existing Consultant Access Token: ${consultantId}`);
@@ -99,10 +118,11 @@ export const driveService = {
      */
     async createFolder(name: string, tokens: DriveTokens, consultantId?: string, parentId?: string) {
         const drive = await getDriveClient(tokens.accessToken, tokens.refreshToken, consultantId);
+        const safeParentId = (parentId === 'null' || parentId === 'undefined' || !parentId) ? undefined : parentId;
         const fileMetadata = {
             name: name,
             mimeType: 'application/vnd.google-apps.folder',
-            parents: parentId ? [parentId] : undefined,
+            parents: safeParentId ? [safeParentId] : undefined,
         };
 
         try {
@@ -128,7 +148,7 @@ export const driveService = {
         let query = `name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
         
         // 부모 폴더가 지정되지 않았다면 최상위 루트('root')에서 검색하도록 명시 (중복 방지 핵심)
-        const effectiveParentId = parentId || 'root';
+        const effectiveParentId = (parentId === 'null' || parentId === 'undefined' || !parentId) ? 'root' : parentId;
         query += ` and '${effectiveParentId}' in parents`;
 
         try {
@@ -161,6 +181,7 @@ export const driveService = {
             });
         } catch (err) {
             console.error('Google Drive File Delete Error:', err);
+            throw err;
         }
     },
 

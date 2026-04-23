@@ -158,10 +158,6 @@ export default function StudentsPage() {
         e.preventDefault();
         e.stopPropagation();
         
-        if (userRole === 'manager') {
-            showToast('❌ 학생 삭제 권한이 없습니다.');
-            return;
-        }
         setDeleteTarget({ id: studentId, name: studentName });
         setShowDeleteModal(true);
     };
@@ -281,7 +277,6 @@ export default function StudentsPage() {
                                             {student.school} · {student.grade}학년
                                         </p>
                                     </div>
-                                    {userRole !== 'manager' && (
                                         <button
                                             className="btn btn-ghost btn-sm"
                                             onClick={(e) => handleDeleteStudentClick(e, student.id, student.name)}
@@ -290,7 +285,6 @@ export default function StudentsPage() {
                                         >
                                             <Trash2 size={16} />
                                         </button>
-                                    )}
                                 </div>
 
                                 <div style={{ minHeight: '45px' }}>

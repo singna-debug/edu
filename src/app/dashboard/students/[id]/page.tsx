@@ -365,7 +365,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
             // 2. Firestore Sync
             await studentService.updateFile(fileId, { category: newCategory, folderId: newFolderId || undefined });
-            setFiles(prev => prev.map(f => f.id === fileId ? { ...f, category: newCategory, folderId: newFolderId || undefined } : f));
+            // setFiles(prev => prev.map(f => f.id === fileId ? { ...f, category: newCategory, folderId: newFolderId || undefined } : f)); // 실시간 리스너가 자동 처리함
             showToast('📂 파일이 이동되었습니다.');
         } catch (error) {
             console.error("Error moving file:", error);
@@ -417,7 +417,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 createdAt: new Date().toISOString()
             };
             const newId = await studentService.addFolder(folderData);
-            setFolders(prev => [...prev, { id: newId, ...folderData }]);
+            // setFolders(prev => [...prev, { id: newId, ...folderData }]); // 실시간 리스너가 자동 처리함
             
             // Auto-expand category and current folder
             setExpandedNodes(prev => {
@@ -481,7 +481,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             const updates: Partial<FileFolder> = { parentId: newParentId };
             if (newCategory) updates.category = newCategory as FileCategory;
             await studentService.updateFolder(folderId, updates);
-            setFolders(prev => prev.map(f => f.id === folderId ? { ...f, ...updates } : f));
+            // setFolders(prev => prev.map(f => f.id === folderId ? { ...f, ...updates } : f)); // 실시간 리스너가 자동 처리함
             showToast('📂 폴더가 이동되었습니다.');
         } catch (error) {
             console.error("Error moving folder:", error);
@@ -499,19 +499,11 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     };
 
     const handleDeleteFile = (fileId: string, fileName: string) => {
-        if (userRole === 'manager') {
-            showToast('❌ 삭제 권한이 없습니다.');
-            return;
-        }
         setDeleteTarget({ id: fileId, name: fileName, type: 'file' });
         setShowDeleteModal(true);
     };
 
     const handleDeleteFolder = (folderId: string, folderName: string) => {
-        if (userRole === 'manager') {
-            showToast('❌ 삭제 권한이 없습니다.');
-            return;
-        }
         setDeleteTarget({ id: folderId, name: folderName, type: 'folder' });
         setShowDeleteModal(true);
     };
@@ -528,12 +520,13 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         try {
             if (type === 'file') {
                 const file = files.find(f => f.id === targetId);
+                let driveDeleteFailed = false;
                 
                 // 1. Google Drive Sync
                 if (file?.driveFileId) {
                     try {
                         const idToken = await auth.currentUser?.getIdToken();
-                        await fetch('/api/drive', {
+                        const resp = await fetch('/api/drive', {
                             method: 'POST',
                             headers: { 
                                 'Content-Type': 'application/json',
@@ -541,23 +534,36 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             },
                             body: JSON.stringify({ action: 'delete', fileId: file.driveFileId, consultantId: cId })
                         });
+                        const res = await resp.json();
+                        // 404 (File not found) 에러는 이미 드라이브에서 삭제된 것이므로 성공으로 간주
+                        if (!res.success && res.error && !res.error.includes('File not found') && !res.error.includes('404')) {
+                            driveDeleteFailed = true;
+                            console.error("Drive delete error response:", res.error);
+                        }
                     } catch (e) {
-                        console.error("Drive delete failed:", e);
+                        console.error("Drive delete fetch failed:", e);
+                        driveDeleteFailed = true;
                     }
                 }
 
                 // 2. Firestore Sync
                 await studentService.deleteFile(targetId);
-                setFiles(prev => prev.filter(f => f.id !== targetId));
-                showToast(`${targetName} 파일이 삭제되었습니다.`);
+                // setFiles(prev => prev.filter(f => f.id !== targetId)); // 실시간 리스너가 자동 처리함
+                
+                if (driveDeleteFailed) {
+                    showToast(`⚠️ 목록에서 삭제되었으나, 권한 문제로 드라이브 원본 파일은 지워지지 않았을 수 있습니다.`);
+                } else {
+                    showToast(`${targetName} 파일이 삭제되었습니다.`);
+                }
             } else {
                 const folder = folders.find(f => f.id === targetId);
+                let driveDeleteFailed = false;
 
                 // 1. Drive Delete
                 if (folder?.driveFolderId) {
                     try {
                         const idToken = await auth.currentUser?.getIdToken();
-                        await fetch('/api/drive', {
+                        const resp = await fetch('/api/drive', {
                             method: 'POST',
                             headers: { 
                                 'Content-Type': 'application/json',
@@ -565,8 +571,14 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             },
                             body: JSON.stringify({ action: 'delete', fileId: folder.driveFolderId, consultantId: cId })
                         });
+                        const res = await resp.json();
+                        if (!res.success && res.error && !res.error.includes('File not found') && !res.error.includes('404')) {
+                            driveDeleteFailed = true;
+                            console.error("Drive delete error response:", res.error);
+                        }
                     } catch (e) {
-                        console.error("Drive delete failed:", e);
+                        console.error("Drive delete fetch failed:", e);
+                        driveDeleteFailed = true;
                     }
                 }
 
@@ -574,7 +586,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 await studentService.deleteFolder(targetId);
                 setFolders(prev => prev.filter(f => f.id !== targetId && f.parentId !== targetId));
                 setFiles(prev => prev.filter(f => f.folderId !== targetId));
-                showToast(`🗑️ "${targetName}" 폴더가 삭제되었습니다.`);
+                
+                if (driveDeleteFailed) {
+                    showToast(`⚠️ 목록에서 삭제되었으나, 권한 문제로 드라이브 원본 폴더는 지워지지 않았을 수 있습니다.`);
+                } else {
+                    showToast(`🗑️ "${targetName}" 폴더가 삭제되었습니다.`);
+                }
             }
         } catch (error) {
             console.error("Error during deletion:", error);
@@ -648,11 +665,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                     <Folder size={16} color={color} />
                                 )}
                                 <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{folder.name}</span>
-                                {userRole !== 'manager' && (
-                                    <button className="btn btn-ghost btn-sm" style={{ padding: '0 4px', color: 'var(--danger-400)', marginLeft: 'auto', zIndex: 10 }} onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); }}>
-                                        <X size={14} />
-                                    </button>
-                                )}
+                                <button className="btn btn-ghost btn-sm" style={{ padding: '0 4px', color: 'var(--danger-400)', marginLeft: 'auto', zIndex: 10 }} onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id, folder.name); }}>
+                                    <X size={14} />
+                                </button>
                             </div>
                             {isFolderExpanded && renderFolder(cat, folder.id)}
                         </li>
@@ -693,11 +708,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             }}>
                             <File size={14} color="var(--text-muted)" />
                             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.fileName}</span>
-                            {userRole !== 'manager' && (
-                                <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); handleDeleteFile(f.id, f.fileName); }} style={{ color: 'var(--danger-400)', padding: '0 4px' }}>
-                                    <X size={14} />
-                                </button>
-                            )}
+                            <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); handleDeleteFile(f.id, f.fileName); }} style={{ color: 'var(--danger-400)', padding: '0 4px' }}>
+                                <X size={14} />
+                            </button>
                         </div>
                     </li>
                 ))}
@@ -893,6 +906,40 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         return () => unsubscribe();
     }, [id, fetchData]);
 
+    // Real-time synchronization for files and folders (실시간 동기화)
+    useEffect(() => {
+        if (!student?.id) return;
+        
+        console.log('[StudentDetail] Initializing real-time sync for files and folders');
+        
+        // 파일 실시간 구독
+        const unsubFiles = studentService.subscribeToFiles(student.id, (updatedFiles) => {
+            setFiles(updatedFiles);
+        });
+        
+        // 폴더 실시간 구독
+        const unsubFolders = studentService.subscribeToFolders(student.id, (updatedFolders) => {
+            setFolders(updatedFolders);
+            
+            // 새 폴더가 생겼을 때 트리를 자연스럽게 펼쳐주기 위함
+            setExpandedNodes(prev => {
+                const next = new Set(prev);
+                updatedFolders.forEach(parent => {
+                    const hasSubFolders = updatedFolders.some(child => child.parentId === parent.id);
+                    if (hasSubFolders) next.add(parent.id);
+                });
+                return next;
+            });
+        });
+
+        // 언마운트 시 리스너 해제 (메모리 누수 방지)
+        return () => {
+            console.log('[StudentDetail] Cleaning up real-time sync');
+            unsubFiles();
+            unsubFolders();
+        };
+    }, [student?.id]);
+
     // Sync state and ensure Drive Folder when student is loaded
     useEffect(() => {
         if (!student) return;
@@ -1030,10 +1077,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     };
 
     const handleDeleteMemo = async (memoId: string) => {
-        if (userRole === 'manager') {
-            showToast('❌ 삭제 권한이 없습니다.');
-            return;
-        }
         if (confirm('메모를 삭제하시겠습니까?')) {
             try {
                 await studentService.deleteMemo(memoId);
@@ -1049,7 +1092,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
 
     const ensureDrivePath = async (category: string, cId: string) => {
-        let currentRootId = student?.driveFolderId;
+        let currentRootId = (student?.driveFolderId === 'undefined' || student?.driveFolderId === 'null') ? undefined : student?.driveFolderId;
         
         // 1. 만약 학생의 루트 폴더 ID가 없거나 유효하지 않은 경우 새로 생성 시도
         if (!currentRootId) {
@@ -1185,7 +1228,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             const result = await response.json();
             
             if (result.success) {
-                setFiles(prev => [result.data, ...prev]);
+                // setFiles(prev => [result.data, ...prev]); // 실시간 리스너가 자동 처리함
                 
                 setExpandedNodes(prev => {
                     const next = new Set(prev);
@@ -1285,10 +1328,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     };
 
     const handleDeleteGrade = async (gradeId: string) => {
-        if (userRole === 'manager') {
-            showToast('❌ 삭제 권한이 없습니다.');
-            return;
-        }
         if (confirm('성적 기록을 삭제하시겠습니까?')) {
             try {
                 await studentService.deleteGrade(gradeId);
@@ -1589,10 +1628,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     };
 
     const handleDeleteBook = async (bookId: string) => {
-        if (userRole === 'manager') {
-            showToast('❌ 삭제 권한이 없습니다.');
-            return;
-        }
         if (confirm('도서 기록을 삭제하시겠습니까?')) {
             try {
                 await studentService.deleteBook(bookId);
@@ -1666,10 +1701,6 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     };
 
     const handleDeleteResource = async (resourceId: string) => {
-        if (userRole === 'manager') {
-            showToast('❌ 삭제 권한이 없습니다.');
-            return;
-        }
         if (confirm('교과 리소스를 삭제하시겠습니까?')) {
             try {
                 await studentService.deleteResource(resourceId);
@@ -2152,7 +2183,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         // 닫을 때 변경사항 있으면 저장
                                         if (editingFileMemoValue !== selectedFileForDetail.summary) {
                                             studentService.updateFile(selectedFileForDetail.id, { summary: editingFileMemoValue });
-                                            setFiles(prev => prev.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f));
+                                            // setFiles(prev => prev.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f)); // 실시간 리스너가 자동 처리함
                                         }
                                         setSelectedFileForDetail(null); 
                                         setIsEditingFileMemo(false); 
@@ -2172,7 +2203,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         // 포커스 벗어날 때 자동 저장
                                         if (editingFileMemoValue !== selectedFileForDetail.summary) {
                                             studentService.updateFile(selectedFileForDetail.id, { summary: editingFileMemoValue });
-                                            setFiles(prev => prev.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f));
+                                            // setFiles(prev => prev.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f)); // 실시간 리스너가 자동 처리함
                                             setSelectedFileForDetail({ ...selectedFileForDetail, summary: editingFileMemoValue });
                                         }
                                     }}
@@ -2241,9 +2272,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                             <td><div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>{file.tags.map((t) => <span key={t} className="tag tag-gray" style={{ fontSize: '0.68rem' }}>#{t}</span>)}</div></td>
                                             <td style={{ fontSize: '0.82rem' }}>{new Date(file.uploadedAt).toLocaleDateString('ko-KR')}</td>
                                             <td>
-                                                {userRole !== 'manager' && (
-                                                    <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteFile(file.id, file.fileName)} style={{ color: 'var(--danger-400)' }}><Trash2 size={16} /></button>
-                                                )}
+                                                <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteFile(file.id, file.fileName)} style={{ color: 'var(--danger-400)' }}><Trash2 size={16} /></button>
                                             </td>
                                         </tr>
                                     ))}
@@ -2448,12 +2477,10 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         {record.studentGrade || ''}학년 {record.examType === '내신' ? `${record.semester}학기 ${record.examPeriod || ''}` : `${record.month}월`}
                                     </span>
                                 </div>
-                                {userRole !== 'manager' && (
                                     <div style={{ display: 'flex', gap: 4 }}>
                                         <button className="btn btn-ghost btn-sm" onClick={() => handleEditGrade(record)} style={{ color: 'var(--text-muted)' }} title="성적 수정"><Pencil size={16} /></button>
                                         <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteGrade(record.id)} style={{ color: 'var(--danger-400)' }} title="성적 삭제"><Trash2 size={16} /></button>
                                     </div>
-                                )}
                             </div>
                             <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)' }}>
                                 <table className="table" style={{ fontSize: '0.85rem', minWidth: '600px', margin: 0 }}>
@@ -2556,9 +2583,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         <td style={{ fontSize: '0.82rem' }}>{book.studentGrade || '-'}학년</td>
                                         <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{book.memo || '-'}</td>
                                         <td>
-                                            {userRole !== 'manager' && (
-                                                <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteBook(book.id)} style={{ color: 'var(--danger-400)', fontSize: '0.72rem' }}>✕</button>
-                                            )}
+                                            <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteBook(book.id)} style={{ color: 'var(--danger-400)', fontSize: '0.72rem' }}>✕</button>
                                         </td>
                                     </tr>
                                 ))}
@@ -2628,11 +2653,9 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         {res.publisher && <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>📖 출판사: {res.publisher}</div>}
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                        {userRole !== 'manager' && (
-                                            <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteResource(res.id)} style={{ color: 'var(--danger-400)' }} title="삭제">
-                                                <Trash2 size={18} />
-                                            </button>
-                                        )}
+                                        <button className="btn btn-ghost btn-sm" onClick={() => handleDeleteResource(res.id)} style={{ color: 'var(--danger-400)' }} title="삭제">
+                                            <Trash2 size={18} />
+                                        </button>
                                     </div>
                                 </div>
                                 
