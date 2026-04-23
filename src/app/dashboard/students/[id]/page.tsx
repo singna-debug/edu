@@ -3245,7 +3245,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                 style={{ flex: 2, height: '48px' }}
                                 onClick={() => {
                                     studentService.updateFile(selectedFileForDetail.id, { summary: editingFileMemoValue });
-                                    setFiles(files.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f));
+                                    // setFiles(files.map(f => f.id === selectedFileForDetail.id ? { ...f, summary: editingFileMemoValue } : f)); // 실시간 리스너가 자동 처리함
                                     setSelectedFileForDetail({ ...selectedFileForDetail, summary: editingFileMemoValue });
                                     showToast('✅ 메모가 저장되었습니다.');
                                     setShowFileDetailModal(false);
