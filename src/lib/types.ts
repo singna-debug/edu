@@ -2,7 +2,8 @@
 export interface Student {
     id: string;
     name: string;
-    grade: number; // 1, 2, 3
+    grade: number; // 1, 2, 3 (기본 표시용, entryYear가 있으면 자동 계산됨)
+    entryYear?: number;          // 1학년이었던 연도 (자동 학년 계산용)
     school: string;
     classNumber?: number | null;        // 반
     studentNumber?: number | null;      // 번호

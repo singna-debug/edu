@@ -6,6 +6,7 @@ import { Search, Plus, Trash2, X, Loader2 } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { studentService } from '@/lib/services/studentService';
 import type { Student } from '@/lib/types';
+import { calculateCurrentGrade, calculateEntryYear, getGradeText } from '@/lib/schoolUtils';
 
 const avatarColors = [
     'linear-gradient(135deg, #6366f1, #818cf8)',
@@ -27,6 +28,7 @@ export default function StudentsPage() {
     const [newStudent, setNewStudent] = useState({
         name: '', grade: 1, school: '', classNumber: '' as number | '', studentNumber: '' as number | '', teacherMemo: '', studentMemo: '',
     });
+    const [activeTab, setActiveTab] = useState<'전체' | '1학년' | '2학년' | '3학년' | '졸업생'>('전체');
     const [toast, setToast] = useState<string | null>(null);
 
     // Delete Modal
@@ -73,10 +75,25 @@ export default function StudentsPage() {
     }, [fetchStudents]);
 
     const filtered = students.filter(
-        (s) =>
-            s.name.includes(searchQuery) ||
-            s.school.includes(searchQuery) ||
-            (s.targetUniv && s.targetUniv.includes(searchQuery))
+        (s) => {
+            const currentGrade = s.entryYear ? calculateCurrentGrade(s.entryYear) : s.grade;
+            
+            // Tab filtering
+            if (activeTab !== '전체') {
+                if (activeTab === '1학년' && currentGrade !== 1) return false;
+                if (activeTab === '2학년' && currentGrade !== 2) return false;
+                if (activeTab === '3학년' && currentGrade !== 3) return false;
+                if (activeTab === '졸업생' && currentGrade <= 3) return false;
+            }
+
+            // Search filtering
+            const matchesSearch = 
+                s.name.includes(searchQuery) ||
+                s.school.includes(searchQuery) ||
+                (s.targetUniv && s.targetUniv.includes(searchQuery));
+            
+            return matchesSearch;
+        }
     );
 
     const handleAddStudent = async () => {
@@ -124,6 +141,7 @@ export default function StudentsPage() {
             const studentData: Omit<Student, 'id' | 'createdAt' | 'updatedAt'> = {
                 name: newStudent.name,
                 grade: newStudent.grade,
+                entryYear: calculateEntryYear(newStudent.grade),
                 school: newStudent.school,
                 classNumber: newStudent.classNumber ? Number(newStudent.classNumber) : null,
                 studentNumber: newStudent.studentNumber ? Number(newStudent.studentNumber) : null,
@@ -232,6 +250,37 @@ export default function StudentsPage() {
                     <Plus size={18} /> 학생 등록
                 </button>
             </div>
+            
+            {/* Grade Tabs */}
+            <div style={{ 
+                display: 'flex', 
+                gap: '8px', 
+                marginBottom: 'var(--space-lg)', 
+                overflowX: 'auto', 
+                paddingBottom: '8px',
+                borderBottom: '1px solid var(--border-color)'
+            }}>
+                {(['전체', '1학년', '2학년', '3학년', '졸업생'] as const).map(tab => (
+                    <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        style={{
+                            padding: '8px 20px',
+                            borderRadius: '20px',
+                            border: 'none',
+                            fontSize: '0.9rem',
+                            fontWeight: activeTab === tab ? 600 : 400,
+                            background: activeTab === tab ? 'var(--primary-500)' : 'transparent',
+                            color: activeTab === tab ? 'white' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        {tab}
+                    </button>
+                ))}
+            </div>
 
             {/* Search */}
             <div style={{ marginBottom: 'var(--space-lg)', position: 'relative', maxWidth: 400 }}>
@@ -274,7 +323,7 @@ export default function StudentsPage() {
                                     <div style={{ flex: 1 }}>
                                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{student.name}</h3>
                                         <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                                            {student.school} · {student.grade}학년
+                                            {student.school} · {getGradeText(student.entryYear ? calculateCurrentGrade(student.entryYear) : student.grade)}
                                         </p>
                                     </div>
                                         <button
@@ -364,6 +413,7 @@ export default function StudentsPage() {
                                         <option value={1}>1학년</option>
                                         <option value={2}>2학년</option>
                                         <option value={3}>3학년</option>
+                                        <option value={4}>졸업생</option>
                                     </select>
                                 </div>
                                 <div className="form-group">

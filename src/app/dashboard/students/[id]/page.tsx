@@ -46,6 +46,7 @@ import { auth, db } from '@/lib/firebase';
 import { studentService } from '@/lib/services/studentService';
 import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore, BookRecord, SubjectResource, FileFolder, FileCategory } from '@/lib/types';
 import { FILE_CATEGORIES } from '@/lib/types';
+import { calculateCurrentGrade, calculateEntryYear, getGradeText, calculateCurrentSemester } from '@/lib/schoolUtils';
 
 ChartJS.register(
     CategoryScale, LinearScale, PointElement, LineElement,
@@ -956,6 +957,16 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             targetUniv: student.targetUniv || '',
             targetMajor: student.targetMajor || '',
         });
+
+        // 1.5. 학기 초기값 설정 (학생 학년과 현재 학기 기준)
+        const currentGrade = student.entryYear ? calculateCurrentGrade(student.entryYear) : student.grade;
+        const currentTerm = calculateCurrentSemester();
+        if (currentGrade <= 3) {
+            setSelectedSemester(`${currentGrade}-${currentTerm}`);
+        } else {
+            setSelectedSemester('3-2');
+        }
+
         setTimetableUrl(student.timetableImageUrl || '');
         if (student.timetableData) setTimetableData(student.timetableData);
 
@@ -1504,7 +1515,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 const sources: { text: string; category: string; id?: string; type?: 'memo' | 'file' | 'grade' | 'resource'; url?: string }[] = [];
                 let answerLines: string[] = [`"${searchQuery}"에 대한 종합 검색 결과입니다.\n`];
                 answerLines.push(`📋 ${student.name} 학생 종합 현황:\n`);
-                answerLines.push(`• 학교: ${student.school} (${student.grade}학년)`);
+                answerLines.push(`• 학교: ${student.school} (${getGradeText(student.entryYear ? calculateCurrentGrade(student.entryYear) : student.grade)})`);
                 answerLines.push(`• 목표: ${student.targetUniv} ${student.targetMajor}`);
                 answerLines.push(`• 메모: ${memos.length}건 / 파일: ${files.length}건 / 성적 기록: ${grades.length}건\n`);
 
@@ -1574,6 +1585,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         try {
             const updatedData = {
                 ...editForm,
+                entryYear: calculateEntryYear(editForm.grade),
                 classNumber: editForm.classNumber === '' ? null : Number(editForm.classNumber),
                 studentNumber: editForm.studentNumber === '' ? null : Number(editForm.studentNumber),
                 updatedAt: new Date().toISOString(),
@@ -1801,7 +1813,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 <div style={{ flex: 1, minWidth: 200 }}>
                     <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>{student.name}</h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '2px' }}>
-                        {student.school} · {student.grade}학년{student.classNumber ? ` ${student.classNumber}반` : ''}{student.studentNumber ? ` ${student.studentNumber}번` : ''}
+                        {student.school} · {getGradeText(student.entryYear ? calculateCurrentGrade(student.entryYear) : student.grade)}{student.classNumber ? ` ${student.classNumber}반` : ''}{student.studentNumber ? ` ${student.studentNumber}번` : ''}
                     </p>
                     <div style={{ marginTop: 'var(--space-sm)' }}>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>학생 메모</div>
@@ -2982,6 +2994,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                         <option value={1}>1학년</option>
                                         <option value={2}>2학년</option>
                                         <option value={3}>3학년</option>
+                                        <option value={4}>졸업생</option>
                                     </select>
                                 </div>
                                 <div className="form-group">
