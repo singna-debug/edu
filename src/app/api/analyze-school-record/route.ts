@@ -4,7 +4,6 @@ import { parseSchoolRecordPDF } from '@/lib/gemini';
 
 // Load legacy Node-compatible build of pdfjs-dist directly to avoid Next.js C++ canvas binder issues
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.mjs');
-pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
 
 async function extractPDFText(buffer: Buffer): Promise<string> {
     const uint8Array = new Uint8Array(buffer);
