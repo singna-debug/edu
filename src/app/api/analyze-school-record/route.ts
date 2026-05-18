@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-server';
 import { parseSchoolRecordPDF } from '@/lib/gemini';
+import path from 'path';
+import { pathToFileURL } from 'url';
 
 // Load legacy Node-compatible build of pdfjs-dist directly to avoid Next.js C++ canvas binder issues
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.mjs');
+
+// Format workerSrc to a proper file:// scheme URL to satisfy the default ESM loader in Node/Next.js chunks
+const workerPath = path.resolve('./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
+pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
 async function extractPDFText(buffer: Buffer): Promise<string> {
     const uint8Array = new Uint8Array(buffer);
