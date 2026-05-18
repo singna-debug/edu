@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { auth, db, storage } from '@/lib/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { PDFDocument } from 'pdf-lib';
 import { studentService } from '@/lib/services/studentService';
 import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore, BookRecord, SubjectResource, FileFolder, FileCategory, SchoolRecord } from '@/lib/types';
 import { FILE_CATEGORIES } from '@/lib/types';
@@ -210,6 +211,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     // School Record (생기부) states
     const [schoolRecord, setSchoolRecord] = useState<SchoolRecord | null>(null);
     const [isAnalyzingSchoolRecord, setIsAnalyzingSchoolRecord] = useState(false);
+    const [analysisProgress, setAnalysisProgress] = useState(0);
+    const [analysisStatus, setAnalysisStatus] = useState('');
     
     // Inline Teacher Memo state
     const [isEditingTeacherMemo, setIsEditingTeacherMemo] = useState(false);
@@ -1119,62 +1122,113 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         if (!student) return;
         
         setIsAnalyzingSchoolRecord(true);
-        showToast('📄 생활기록부 PDF 업로드 및 분석을 시작합니다. (약 10~20초 소요)');
+        setAnalysisProgress(0);
+        setAnalysisStatus('📄 생활기록부 원본 업로드 중...');
         
         try {
-            // 1. Firebase Storage 클라이언트 사이드 직접 업로드 (Vercel 4.5MB 제한 우회)
+            // 1. Firebase Storage 클라이언트 사이드 직접 업로드 (원본 보관)
             if (!storage) throw new Error('Storage is not initialized');
             const safeFileName = file.name.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
             const storageRef = ref(storage, `school_records/${student.id}/${Date.now()}_${safeFileName}`);
             await uploadBytes(storageRef, file);
             const downloadUrl = await getDownloadURL(storageRef);
 
-            const idToken = await auth.currentUser?.getIdToken();
-            const response = await fetch('/api/analyze-school-record', {
-                method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${idToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    studentId: student.id,
-                    fileName: file.name,
-                    fileUrl: downloadUrl
-                }),
+            setAnalysisStatus('⚙️ 생활기록부 페이지 해체 중...');
+            const arrayBuffer = await file.arrayBuffer();
+            const pdfDoc = await PDFDocument.load(arrayBuffer);
+            const pageCount = pdfDoc.getPageCount();
+            
+            setAnalysisStatus(`🤖 총 ${pageCount}페이지 분석 대기 중...`);
+            
+            const concurrency = 3;
+            let currentIdx = 0;
+            let completedCount = 0;
+            const results = new Array<string>(pageCount);
+            
+            // Concurrency Pool Workers
+            const workers = Array.from({ length: concurrency }, async () => {
+                while (currentIdx < pageCount) {
+                    const taskIdx = currentIdx++;
+                    setAnalysisStatus(`🤖 [분석 중] ${taskIdx + 1}/${pageCount}페이지 이미지 스캔 작동 중...`);
+                    
+                    try {
+                        const newDoc = await PDFDocument.create();
+                        const [copiedPage] = await newDoc.copyPages(pdfDoc, [taskIdx]);
+                        newDoc.addPage(copiedPage);
+                        const singlePageBuffer = await newDoc.save();
+                        
+                        // Convert Uint8Array to base64 safely in browser
+                        const uint8 = new Uint8Array(singlePageBuffer);
+                        let binary = '';
+                        const len = uint8.byteLength;
+                        for (let j = 0; j < len; j++) {
+                            binary += String.fromCharCode(uint8[j]);
+                        }
+                        const singlePageBase64 = btoa(binary);
+                        
+                        const idToken = await auth.currentUser?.getIdToken();
+                        const response = await fetch('/api/analyze-school-record', {
+                            method: 'POST',
+                            headers: { 
+                                'Authorization': `Bearer ${idToken}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                pageBase64: singlePageBase64,
+                                pageNum: taskIdx + 1,
+                                pageCount: pageCount
+                            }),
+                        });
+                        
+                        const result = await response.json();
+                        if (!result.success) {
+                            throw new Error(result.error || `${taskIdx + 1}페이지 분석 실패`);
+                        }
+                        
+                        results[taskIdx] = result.text;
+                        completedCount++;
+                        
+                        const progressPercent = Math.round((completedCount / pageCount) * 100);
+                        setAnalysisProgress(progressPercent);
+                        setAnalysisStatus(`🤖 [진행률 ${progressPercent}%] ${completedCount}/${pageCount}페이지 분석 완료`);
+                    } catch (pageError: any) {
+                        console.error(`Page ${taskIdx + 1} Error:`, pageError);
+                        throw new Error(`[${taskIdx + 1}페이지 에러] ${pageError.message}`);
+                    }
+                }
             });
             
-            const result = await response.json();
+            await Promise.all(workers);
             
-            if (!result.success) {
-                throw new Error(result.error || '생활기록부 분석에 실패했습니다.');
-            }
-            
-            const { fileName, fileUrl, parsedText } = result.data;
+            setAnalysisStatus('✨ 분석된 텍스트와 표 구조를 100% 디지털 병합하는 중...');
+            const parsedText = results.join('\n\n');
             
             // Firestore에 저장
             const recordId = await studentService.addSchoolRecord({
                 studentId: student.id,
-                fileName,
-                fileUrl,
+                fileName: file.name,
+                fileUrl: downloadUrl,
                 parsedText,
             });
             
-            // 로컬 상태 즉시 업데이트 (실시간 동기화 대기 시간 제거)
+            // 로컬 상태 즉시 업데이트
             setSchoolRecord({
                 id: recordId,
                 studentId: student.id,
-                fileName,
-                fileUrl,
+                fileName: file.name,
+                fileUrl: downloadUrl,
                 parsedText,
                 uploadedAt: new Date().toISOString(),
             });
             
-            showToast('✅ 생활기록부가 성공적으로 정밀 분석 및 저장되었습니다.');
+            showToast('✅ 생활기록부 100% 디지털 정밀 복원 및 동기화 완료!');
         } catch (error: any) {
             console.error("Error uploading school record:", error);
             alert(`오류: ${error.message || '생활기록부 분석 중 문제가 발생했습니다.'}`);
         } finally {
             setIsAnalyzingSchoolRecord(false);
+            setAnalysisProgress(0);
+            setAnalysisStatus('');
         }
     };
 
@@ -1977,14 +2031,14 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             input.click();
                         }}>
                             <div className="avatar" style={{ background: 'var(--primary-900)55', color: 'var(--primary-400)', width: 64, height: 64, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                {isAnalyzingSchoolRecord ? <Loader2 size={32} className="spinner" /> : <FileText size={32} />}
+                                {isAnalyzingSchoolRecord ? <span style={{ fontWeight: 800, color: 'var(--primary-400)' }}>{analysisProgress}%</span> : <FileText size={32} />}
                             </div>
                             <div>
                                 <h4 style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '8px' }}>
-                                    {isAnalyzingSchoolRecord ? '생활기록부를 고속 분석하고 있습니다...' : '생활기록부 PDF 파일 업로드'}
+                                    {isAnalyzingSchoolRecord ? (analysisStatus || '생활기록부 고속 분석 중...') : '생활기록부 PDF 파일 업로드'}
                                 </h4>
                                 <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                    {isAnalyzingSchoolRecord ? 'AI가 원문 텍스트를 고속 추출하는 중입니다. (약 10초 소요)' : '여기를 클릭하거나 PDF 파일을 끌어다 놓으세요.'}
+                                    {isAnalyzingSchoolRecord ? `실시간 순차 채널 분석 완료 (${analysisProgress}%)` : '여기를 클릭하거나 PDF 파일을 끌어다 놓으세요.'}
                                 </p>
                             </div>
                             {!isAnalyzingSchoolRecord && (
@@ -2043,11 +2097,58 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
                             {/* Premium AI Digital Reconstruction Document Card */}
                             {isAnalyzingSchoolRecord ? (
-                                <div className="card" style={{ padding: 'var(--space-xl)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '100px 0', gap: '16px' }}>
-                                        <Loader2 className="spinner" size={32} color="var(--primary-400)" />
-                                        <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>생활기록부 파일을 업로드하고 AI 정밀 디지털 복원 작업을 진행하고 있습니다...</p>
-                                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.78rem' }}>대용량 스캔 파일의 경우 이미지 판독 및 표 복구에 10~25초가 소요됩니다.</p>
+                                <div className="card" style={{ 
+                                    padding: 'var(--space-xl)', 
+                                    border: '1px solid rgba(255,255,255,0.05)',
+                                    background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%)',
+                                    backdropFilter: 'blur(12px)',
+                                    borderRadius: '16px'
+                                }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '120px 0', gap: '24px', maxWidth: '480px', margin: '0 auto' }}>
+                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <Loader2 className="spinner" size={48} color="var(--primary-400)" style={{ position: 'absolute', opacity: 0.15 }} />
+                                            <div style={{ 
+                                                width: '80px', 
+                                                height: '80px', 
+                                                borderRadius: '50%', 
+                                                background: 'radial-gradient(circle, var(--primary-900) 0%, transparent 70%)',
+                                                display: 'flex', 
+                                                alignItems: 'center', 
+                                                justifyContent: 'center',
+                                                border: '2px solid rgba(59, 130, 246, 0.2)',
+                                                boxShadow: '0 0 20px rgba(59, 130, 246, 0.15)'
+                                            }}>
+                                                <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--primary-400)' }}>{analysisProgress}%</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style={{ textAlign: 'center', width: '100%' }}>
+                                            <h4 style={{ fontWeight: 700, fontSize: '1.1rem', color: 'white', marginBottom: '8px' }}>
+                                                {analysisStatus || '생활기록부 디지털 복원 작동 중...'}
+                                            </h4>
+                                            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: '1.5' }}>
+                                                구글 클라우드 보안 안전망과 Vercel API 타임아웃 우회를 가동하여 단 한 장의 손실 없이 100% 안전하게 고속 디지털 스캔 작업을 유지합니다.
+                                            </p>
+                                        </div>
+
+                                        {/* Progress Bar */}
+                                        <div style={{ 
+                                            width: '100%', 
+                                            height: '8px', 
+                                            borderRadius: '999px', 
+                                            background: 'rgba(255,255,255,0.05)', 
+                                            overflow: 'hidden',
+                                            border: '1px solid rgba(255,255,255,0.03)'
+                                        }}>
+                                            <div style={{ 
+                                                width: `${analysisProgress}%`, 
+                                                height: '100%', 
+                                                borderRadius: '999px',
+                                                background: 'linear-gradient(90deg, var(--primary-500) 0%, var(--primary-400) 100%)',
+                                                boxShadow: '0 0 10px var(--primary-500)',
+                                                transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                                            }} />
+                                        </div>
                                     </div>
                                 </div>
                             ) : (
