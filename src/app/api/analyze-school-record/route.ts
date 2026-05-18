@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
         const arrayBuffer = await fileResponse.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        console.log(`[SchoolRecord] Performing parallelized visual Gemini OCR on PDF: ${fileName}`);
+        console.log(`[SchoolRecord] Performing high-performance concurrency-controlled Gemini OCR on PDF: ${fileName}`);
         
         let parsedText = '';
         try {
@@ -37,26 +37,39 @@ export async function POST(req: NextRequest) {
             const pageCount = pdfDoc.getPageCount();
             console.log(`[SchoolRecord] PDF loaded. Total pages: ${pageCount}`);
 
-            console.log(`[SchoolRecord] Initiating direct 100% concurrent scanning for all ${pageCount} pages...`);
-            const pagePromises = Array.from({ length: pageCount }, (_, idx) => {
-                return (async (pageNum: number) => {
-                    const newDoc = await PDFDocument.create();
-                    const [copiedPage] = await newDoc.copyPages(pdfDoc, [pageNum]);
-                    newDoc.addPage(copiedPage);
-                    const singlePageBuffer = await newDoc.save();
-                    const singlePageBase64 = Buffer.from(singlePageBuffer).toString('base64');
+            console.log(`[SchoolRecord] Initiating controlled parallel OCR with Concurrency Pool of 3...`);
+            
+            const concurrency = 3;
+            let currentIdx = 0;
+            const results = new Array<string>(pageCount);
+
+            const workers = Array.from({ length: concurrency }, async () => {
+                while (currentIdx < pageCount) {
+                    const taskIdx = currentIdx++;
+                    console.log(`[SchoolRecord] [Worker] Processing page ${taskIdx + 1}/${pageCount}...`);
                     
-                    const pageText = await parseSchoolRecordPDF(singlePageBase64, 'application/pdf');
-                    return { pageNum: pageNum + 1, text: pageText };
-                })(idx);
+                    try {
+                        const newDoc = await PDFDocument.create();
+                        const [copiedPage] = await newDoc.copyPages(pdfDoc, [taskIdx]);
+                        newDoc.addPage(copiedPage);
+                        const singlePageBuffer = await newDoc.save();
+                        const singlePageBase64 = Buffer.from(singlePageBuffer).toString('base64');
+                        
+                        const pageText = await parseSchoolRecordPDF(singlePageBase64, 'application/pdf');
+                        results[taskIdx] = pageText;
+                        console.log(`[SchoolRecord] [Worker] Page ${taskIdx + 1}/${pageCount} completed!`);
+                    } catch (pageError) {
+                        console.error(`[SchoolRecord] [Worker] Error on page ${taskIdx + 1}:`, pageError);
+                        throw pageError;
+                    }
+                }
             });
 
-            const results = await Promise.all(pagePromises);
+            // Wait for all workers to finish their tasks
+            await Promise.all(workers);
 
-            // Sort by page number to guarantee correct chronological page order
-            results.sort((a, b) => a.pageNum - b.pageNum);
-            parsedText = results.map(r => r.text).join('\n\n');
-            console.log(`[SchoolRecord] Parallel Gemini OCR completed! Extracted Length: ${parsedText.length}`);
+            parsedText = results.join('\n\n');
+            console.log(`[SchoolRecord] Concurrency-controlled Gemini OCR completed! Extracted Length: ${parsedText.length}`);
         } catch (geminiError: any) {
             console.error('[SchoolRecord] Parallel Gemini OCR failed:', geminiError);
             throw new Error(`생활기록부 AI 분석 중 오류가 발생했습니다: ${geminiError.message}`);
