@@ -42,7 +42,8 @@ import {
     ExternalLink,
     Clipboard
 } from 'lucide-react';
-import { auth, db } from '@/lib/firebase';
+import { auth, db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { studentService } from '@/lib/services/studentService';
 import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore, BookRecord, SubjectResource, FileFolder, FileCategory, SchoolRecord } from '@/lib/types';
 import { FILE_CATEGORIES } from '@/lib/types';
@@ -1118,18 +1119,28 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         if (!student) return;
         
         setIsAnalyzingSchoolRecord(true);
-        showToast('📄 생활기록부 PDF 분석을 시작합니다. (약 10~20초 소요)');
+        showToast('📄 생활기록부 PDF 업로드 및 분석을 시작합니다. (약 10~20초 소요)');
         
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('studentId', student.id);
-            
+            // 1. Firebase Storage 클라이언트 사이드 직접 업로드 (Vercel 4.5MB 제한 우회)
+            if (!storage) throw new Error('Storage is not initialized');
+            const safeFileName = file.name.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
+            const storageRef = ref(storage, `school_records/${student.id}/${Date.now()}_${safeFileName}`);
+            await uploadBytes(storageRef, file);
+            const downloadUrl = await getDownloadURL(storageRef);
+
             const idToken = await auth.currentUser?.getIdToken();
             const response = await fetch('/api/analyze-school-record', {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${idToken}` },
-                body: formData,
+                headers: { 
+                    'Authorization': `Bearer ${idToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    studentId: student.id,
+                    fileName: file.name,
+                    fileUrl: downloadUrl
+                }),
             });
             
             const result = await response.json();

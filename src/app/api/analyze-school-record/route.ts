@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-server';
-import fs from 'fs';
-import path from 'path';
 import { parseSchoolRecordPDF } from '@/lib/gemini';
 import { PDFDocument } from 'pdf-lib';
 
@@ -12,21 +10,25 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
         }
 
-        const formData = await req.formData();
-        const file = formData.get('file') as File;
-        const studentId = formData.get('studentId') as string;
+        const body = await req.json();
+        const fileUrl = body.fileUrl as string;
+        const studentId = body.studentId as string;
+        const fileName = body.fileName as string;
 
-        if (!file || !studentId) {
+        if (!fileUrl || !studentId || !fileName) {
             return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
         }
 
-        if (file.type !== 'application/pdf') {
-            return NextResponse.json({ success: false, error: 'PDF 파일만 업로드할 수 있습니다.' }, { status: 400 });
+        console.log(`[SchoolRecord] Fetching PDF from Firebase Storage URL: ${fileUrl}`);
+        const fileResponse = await fetch(fileUrl);
+        if (!fileResponse.ok) {
+            throw new Error(`Failed to download PDF from storage: ${fileResponse.statusText}`);
         }
+        
+        const arrayBuffer = await fileResponse.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
 
-        const buffer = Buffer.from(await file.arrayBuffer());
-
-        console.log(`[SchoolRecord] Performing parallelized visual Gemini OCR on PDF: ${file.name}`);
+        console.log(`[SchoolRecord] Performing parallelized visual Gemini OCR on PDF: ${fileName}`);
         
         let parsedText = '';
         try {
@@ -60,34 +62,11 @@ export async function POST(req: NextRequest) {
             throw new Error(`생활기록부 AI 분석 중 오류가 발생했습니다: ${geminiError.message}`);
         }
 
-        // 2. Save PDF to local public folder (0 cost, unlimited file sizes!)
-        console.log(`[SchoolRecord] Saving PDF to public directory...`);
-        const publicDir = path.join(process.cwd(), 'public');
-        const uploadDir = path.join(publicDir, 'uploads', 'school_records', studentId);
-        
-        // Ensure parent directories exist
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        
-        const timestamp = Date.now();
-        // Remove special characters from filename to prevent path injection / encoding issues
-        const safeFileName = file.name.replace(/[^a-zA-Z0-9가-힣._-]/g, '_');
-        const savedFileName = `${timestamp}_${safeFileName}`;
-        const filePath = path.join(uploadDir, savedFileName);
-        
-        // Save binary file locally
-        fs.writeFileSync(filePath, buffer);
-        
-        // Public served URL path
-        const fileUrl = `/uploads/school_records/${studentId}/${savedFileName}`;
-        console.log(`[SchoolRecord] PDF stored locally at: ${filePath} -> Served at: ${fileUrl}`);
-
         return NextResponse.json({
             success: true,
             data: {
-                fileName: file.name,
-                fileUrl,
+                fileName,
+                fileUrl, // Echo back the Firebase URL!
                 parsedText,
             }
         });
