@@ -3252,7 +3252,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                                     marginTop: 'var(--space-xs)'
                                 }}>
                                     {[
-                                        "🤖 대치동 입시 AI 비서가 분석을 시작합니다...",
+                                        "🤖 입시 AI 비서가 분석을 시작합니다...",
                                         "🔍 생활기록부 복원 데이터에서 관련 활동 추적 중...",
                                         "📝 과거 누적된 입시 상담 메모 대조 중...",
                                         "📂 업로드된 보고서/파일 분석 데이터 확인 중...",
