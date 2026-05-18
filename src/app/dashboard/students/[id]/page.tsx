@@ -1133,75 +1133,105 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             await uploadBytes(storageRef, file);
             const downloadUrl = await getDownloadURL(storageRef);
 
-            setAnalysisStatus('⚙️ 생활기록부 페이지 해체 중...');
-            const arrayBuffer = await file.arrayBuffer();
-            const pdfDoc = await PDFDocument.load(arrayBuffer);
-            const pageCount = pdfDoc.getPageCount();
-            
-            setAnalysisStatus(`🤖 총 ${pageCount}페이지 분석 대기 중...`);
-            
-            const concurrency = 3;
-            let currentIdx = 0;
-            let completedCount = 0;
-            const results = new Array<string>(pageCount);
-            
-            // Concurrency Pool Workers
-            const workers = Array.from({ length: concurrency }, async () => {
-                while (currentIdx < pageCount) {
-                    const taskIdx = currentIdx++;
-                    setAnalysisStatus(`🤖 [분석 중] ${taskIdx + 1}/${pageCount}페이지 이미지 스캔 작동 중...`);
-                    
-                    try {
-                        const newDoc = await PDFDocument.create();
-                        const [copiedPage] = await newDoc.copyPages(pdfDoc, [taskIdx]);
-                        newDoc.addPage(copiedPage);
-                        const singlePageBuffer = await newDoc.save();
-                        
-                        // Convert Uint8Array to base64 safely in browser
-                        const uint8 = new Uint8Array(singlePageBuffer);
-                        let binary = '';
-                        const len = uint8.byteLength;
-                        for (let j = 0; j < len; j++) {
-                            binary += String.fromCharCode(uint8[j]);
-                        }
-                        const singlePageBase64 = btoa(binary);
-                        
-                        const idToken = await auth.currentUser?.getIdToken();
-                        const response = await fetch('/api/analyze-school-record', {
-                            method: 'POST',
-                            headers: { 
-                                'Authorization': `Bearer ${idToken}`,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                pageBase64: singlePageBase64,
-                                pageNum: taskIdx + 1,
-                                pageCount: pageCount
-                            }),
-                        });
-                        
-                        const result = await response.json();
-                        if (!result.success) {
-                            throw new Error(result.error || `${taskIdx + 1}페이지 분석 실패`);
-                        }
-                        
-                        results[taskIdx] = result.text;
-                        completedCount++;
-                        
-                        const progressPercent = Math.round((completedCount / pageCount) * 100);
-                        setAnalysisProgress(progressPercent);
-                        setAnalysisStatus(`🤖 [진행률 ${progressPercent}%] ${completedCount}/${pageCount}페이지 분석 완료`);
-                    } catch (pageError: any) {
-                        console.error(`Page ${taskIdx + 1} Error:`, pageError);
-                        throw new Error(`[${taskIdx + 1}페이지 에러] ${pageError.message}`);
-                    }
-                }
+            // 2. 백엔드 초고속 텍스트 추출 시도 (0.1초 소요)
+            setAnalysisStatus('⚡ 초고속 텍스트 스캔 시도 중...');
+            const idToken = await auth.currentUser?.getIdToken();
+            const fastParseResponse = await fetch('/api/analyze-school-record', {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${idToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fileUrl: downloadUrl,
+                    studentId: student.id,
+                    fileName: file.name
+                }),
             });
             
-            await Promise.all(workers);
+            const fastParseResult = await fastParseResponse.json();
+            if (!fastParseResult.success) {
+                throw new Error(fastParseResult.error || '생활기록부 고속 스캔 중 오류가 발생했습니다.');
+            }
+
+            let parsedText = '';
+
+            if (fastParseResult.isFastParsed) {
+                // 1초만에 성공한 경우! (선택 가능한 일반 디지털 PDF)
+                setAnalysisProgress(100);
+                setAnalysisStatus('✅ 초고속 텍스트 추출 완료!');
+                parsedText = fastParseResult.parsedText;
+            } else {
+                // 스캔 이미지인 경우 - 순차 병렬 AI OCR 실행
+                setAnalysisStatus('🔍 이미지 감지됨: 정밀 AI 시각 OCR 시작...');
+                const arrayBuffer = await file.arrayBuffer();
+                const pdfDoc = await PDFDocument.load(arrayBuffer);
+                const pageCount = pdfDoc.getPageCount();
+                
+                setAnalysisStatus(`🤖 총 ${pageCount}페이지 분석 대기 중...`);
+                
+                const concurrency = 3;
+                let currentIdx = 0;
+                let completedCount = 0;
+                const results = new Array<string>(pageCount);
+                
+                // Concurrency Pool Workers
+                const workers = Array.from({ length: concurrency }, async () => {
+                    while (currentIdx < pageCount) {
+                        const taskIdx = currentIdx++;
+                        setAnalysisStatus(`🤖 [분석 중] ${taskIdx + 1}/${pageCount}페이지 이미지 스캔 작동 중...`);
+                        
+                        try {
+                            const newDoc = await PDFDocument.create();
+                            const [copiedPage] = await newDoc.copyPages(pdfDoc, [taskIdx]);
+                            newDoc.addPage(copiedPage);
+                            const singlePageBuffer = await newDoc.save();
+                            
+                            // Convert Uint8Array to base64 safely in browser
+                            const uint8 = new Uint8Array(singlePageBuffer);
+                            let binary = '';
+                            const len = uint8.byteLength;
+                            for (let j = 0; j < len; j++) {
+                                binary += String.fromCharCode(uint8[j]);
+                            }
+                            const singlePageBase64 = btoa(binary);
+                            
+                            const response = await fetch('/api/analyze-school-record', {
+                                method: 'POST',
+                                headers: { 
+                                    'Authorization': `Bearer ${idToken}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    pageBase64: singlePageBase64,
+                                    pageNum: taskIdx + 1,
+                                    pageCount: pageCount
+                                }),
+                            });
+                            
+                            const result = await response.json();
+                            if (!result.success) {
+                                throw new Error(result.error || `${taskIdx + 1}페이지 분석 실패`);
+                            }
+                            
+                            results[taskIdx] = result.text;
+                            completedCount++;
+                            
+                            const progressPercent = Math.round((completedCount / pageCount) * 100);
+                            setAnalysisProgress(progressPercent);
+                            setAnalysisStatus(`🤖 [진행률 ${progressPercent}%] ${completedCount}/${pageCount}페이지 분석 완료`);
+                        } catch (pageError: any) {
+                            console.error(`Page ${taskIdx + 1} Error:`, pageError);
+                            throw new Error(`[${taskIdx + 1}페이지 에러] ${pageError.message}`);
+                        }
+                    }
+                });
+                
+                await Promise.all(workers);
+                parsedText = results.join('\n\n');
+            }
             
-            setAnalysisStatus('✨ 분석된 텍스트와 표 구조를 100% 디지털 병합하는 중...');
-            const parsedText = results.join('\n\n');
+            setAnalysisStatus('✨ 분석된 텍스트 동기화 완료 및 저장 중...');
             
             // Firestore에 저장
             const recordId = await studentService.addSchoolRecord({
@@ -1221,7 +1251,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 uploadedAt: new Date().toISOString(),
             });
             
-            showToast('✅ 생활기록부 100% 디지털 정밀 복원 및 동기화 완료!');
+            showToast('✅ 생활기록부 디지털 정밀 복원 및 동기화 완료!');
         } catch (error: any) {
             console.error("Error uploading school record:", error);
             alert(`오류: ${error.message || '생활기록부 분석 중 문제가 발생했습니다.'}`);

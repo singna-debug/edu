@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-server';
 import { parseSchoolRecordPDF } from '@/lib/gemini';
+const pdf = require('pdf-parse');
 
 export async function POST(req: NextRequest) {
     try {
@@ -10,29 +11,64 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const pageBase64 = body.pageBase64 as string;
-        const pageNum = body.pageNum as number;
-        const pageCount = body.pageCount as number;
-
-        if (!pageBase64) {
-            return NextResponse.json({ success: false, error: 'Missing pageBase64' }, { status: 400 });
+        
+        // 1. Check if this is a single page Gemini OCR request
+        if (body.pageBase64) {
+            const pageBase64 = body.pageBase64 as string;
+            const pageNum = body.pageNum as number;
+            const pageCount = body.pageCount as number;
+            
+            console.log(`[SchoolRecord] Performing OCR for page ${pageNum}/${pageCount}`);
+            try {
+                const pageText = await parseSchoolRecordPDF(pageBase64, 'application/pdf');
+                return NextResponse.json({ success: true, text: pageText });
+            } catch (geminiError: any) {
+                console.error(`[SchoolRecord] Gemini OCR failed for page ${pageNum}:`, geminiError);
+                return NextResponse.json({ 
+                    success: false, 
+                    error: `Gemini OCR failed on page ${pageNum}: ${geminiError.message}` 
+                }, { status: 500 });
+            }
         }
 
-        console.log(`[SchoolRecord] Performing ultra-fast single page OCR: ${pageNum}/${pageCount}`);
+        // 2. This is a full PDF fast-parse request
+        const fileUrl = body.fileUrl as string;
+        const studentId = body.studentId as string;
+        const fileName = body.fileName as string;
+
+        if (!fileUrl) {
+            return NextResponse.json({ success: false, error: 'Missing fileUrl' }, { status: 400 });
+        }
+
+        console.log(`[SchoolRecord] Fetching PDF from storage for fast parsing: ${fileUrl}`);
+        const fileResponse = await fetch(fileUrl);
+        if (!fileResponse.ok) {
+            throw new Error(`Failed to download PDF from storage: ${fileResponse.statusText}`);
+        }
         
-        try {
-            const pageText = await parseSchoolRecordPDF(pageBase64, 'application/pdf');
+        const arrayBuffer = await fileResponse.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        console.log('[SchoolRecord] Initiating local fast-text extraction...');
+        const parsedData = await pdf(buffer);
+        const extractedText = parsedData.text.trim();
+
+        // If the PDF has high quality selectable text (contains actual words)
+        if (extractedText.length > 200) {
+            console.log(`[SchoolRecord] Fast-parse successful! Extracted length: ${extractedText.length}`);
             return NextResponse.json({
                 success: true,
-                text: pageText
+                isFastParsed: true,
+                parsedText: extractedText
             });
-        } catch (geminiError: any) {
-            console.error(`[SchoolRecord] Gemini OCR failed for page ${pageNum}:`, geminiError);
-            return NextResponse.json({ 
-                success: false, 
-                error: `Gemini OCR failed on page ${pageNum}: ${geminiError.message}` 
-            }, { status: 500 });
         }
+
+        // Otherwise, this is a scanned/image PDF, fallback to client-side page-by-page visual OCR
+        console.log('[SchoolRecord] Fast-parse found insufficient text. PDF appears to be a scanned image.');
+        return NextResponse.json({
+            success: true,
+            isFastParsed: false
+        });
 
     } catch (error: any) {
         console.error('Analyze School Record Error:', error);
