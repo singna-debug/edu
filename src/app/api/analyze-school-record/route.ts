@@ -50,8 +50,7 @@ export async function POST(req: NextRequest) {
 
         console.log('[SchoolRecord] Initiating local fast-text extraction using legacy pdf-parse...');
         
-        // Dynamic require bypasses Next.js bundler entirely, avoiding any fs/chunk issues
-        const pdf = eval('require')('pdf-parse');
+        const pdf = require('pdf-parse');
         const parsedData = await pdf(buffer);
         const extractedText = parsedData.text.trim();
 
