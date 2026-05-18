@@ -13,7 +13,7 @@ import {
     onSnapshot
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Student, Memo, GradeRecord, StudentFile, BookRecord, FileFolder, SubjectResource } from '../types';
+import type { Student, Memo, GradeRecord, StudentFile, BookRecord, FileFolder, SubjectResource, SchoolRecord } from '../types';
 
 const STUDENTS_COLLECTION = 'students';
 const MEMOS_COLLECTION = 'memos';
@@ -250,5 +250,53 @@ export const studentService = {
 
     async deleteResource(id: string): Promise<void> {
         await deleteDoc(doc(db, 'resources', id));
+    },
+
+    // === School Records (생기부) ===
+    async getSchoolRecord(studentId: string): Promise<SchoolRecord | null> {
+        const q = query(
+            collection(db, 'school_records'),
+            where('studentId', '==', studentId)
+        );
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+            return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as SchoolRecord;
+        }
+        return null;
+    },
+
+    subscribeToSchoolRecord(studentId: string, callback: (record: SchoolRecord | null) => void) {
+        const q = query(
+            collection(db, 'school_records'),
+            where('studentId', '==', studentId)
+        );
+        return onSnapshot(q, (snapshot: any) => {
+            if (!snapshot.empty) {
+                callback({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as SchoolRecord);
+            } else {
+                callback(null);
+            }
+        });
+    },
+
+    async addSchoolRecord(record: Omit<SchoolRecord, 'id' | 'uploadedAt'>): Promise<string> {
+        // 기존 생기부 기록이 있으면 삭제 (최신 1개 유지)
+        const q = query(
+            collection(db, 'school_records'),
+            where('studentId', '==', record.studentId)
+        );
+        const snapshot = await getDocs(q);
+        const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, 'school_records', d.id)));
+        await Promise.all(deletePromises);
+
+        const docRef = await addDoc(collection(db, 'school_records'), {
+            ...record,
+            uploadedAt: new Date().toISOString(),
+        });
+        return docRef.id;
+    },
+
+    async deleteSchoolRecord(id: string): Promise<void> {
+        await deleteDoc(doc(db, 'school_records', id));
     }
 };

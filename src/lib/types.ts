@@ -148,6 +148,16 @@ export interface BookRecord {
     createdAt: string;
 }
 
+// 생활기록부 (생기부) 기록
+export interface SchoolRecord {
+    id: string;
+    studentId: string;
+    fileName: string;
+    fileUrl?: string;
+    parsedText: string;
+    uploadedAt: string;
+}
+
 // 9대 파일 카테고리
 export const FILE_CATEGORIES = [
     '교과활동', '자율활동', '진로활동', '동아리',
