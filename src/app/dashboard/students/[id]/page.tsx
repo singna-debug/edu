@@ -132,6 +132,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResult, setSearchResult] = useState<{ answer: string; sources: { text: string; category: string; id?: string; type?: 'memo' | 'file' | 'grade' | 'resource'; url?: string }[] } | null>(null);
     const [isSearching, setIsSearching] = useState(false);
+    const [searchLoadingStep, setSearchLoadingStep] = useState(0);
 
     // Book state
     const [books, setBooks] = useState<BookRecord[]>([]);
@@ -1545,6 +1546,12 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     const handleSearch = async () => {
         if (!searchQuery.trim()) return;
         setIsSearching(true);
+        setSearchLoadingStep(0);
+
+        const interval = setInterval(() => {
+            setSearchLoadingStep(prev => (prev + 1) % 7);
+        }, 1500);
+
         const q = searchQuery.trim().toLowerCase();
 
         // 1. 실서버 모드일 경우 (demo가 아닐 때), 백엔드의 대용량 Gemini 고속 RAG 검색 API 호출
@@ -1569,6 +1576,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 console.error("AI Search Error:", err);
                 showToast(`❌ 검색 오류: ${err.message}`);
             } finally {
+                clearInterval(interval);
                 setIsSearching(false);
             }
             return;
@@ -1781,6 +1789,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 setSearchResult({ answer: answerLines.join('\n'), sources });
             }
 
+            clearInterval(interval);
             setIsSearching(false);
         }, 1200);
     };
@@ -3189,6 +3198,84 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                             </button>
                         </div>
                     </div>
+
+                    {isSearching && (
+                        <div className="card-glass" style={{ 
+                            padding: 'var(--space-lg)', 
+                            textAlign: 'center', 
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid rgba(0, 168, 255, 0.2)',
+                            background: 'rgba(0, 0, 0, 0.2)',
+                            boxShadow: '0 8px 32px 0 rgba(0, 168, 255, 0.1)',
+                            marginBottom: 'var(--space-lg)',
+                            animation: 'pulseGlow 2s infinite ease-in-out'
+                        }}>
+                            <style>{`
+                                @keyframes pulseGlow {
+                                    0% { box-shadow: 0 0 10px rgba(0, 168, 255, 0.05); border-color: rgba(0, 168, 255, 0.1); }
+                                    50% { box-shadow: 0 0 25px rgba(0, 168, 255, 0.25); border-color: rgba(0, 168, 255, 0.4); }
+                                    100% { box-shadow: 0 0 10px rgba(0, 168, 255, 0.05); border-color: rgba(0, 168, 255, 0.1); }
+                                }
+                                @keyframes rotateSpinner {
+                                    0% { transform: rotate(0deg); }
+                                    100% { transform: rotate(360deg); }
+                                }
+                                @keyframes moveProgress {
+                                    0% { transform: translateX(-100%); }
+                                    50% { transform: translateX(0%); }
+                                    100% { transform: translateX(100%); }
+                                }
+                                .premium-spinner {
+                                    width: 42px;
+                                    height: 42px;
+                                    border: 3px solid rgba(0, 168, 255, 0.1);
+                                    border-top: 3px solid #00a8ff;
+                                    border-radius: 50%;
+                                    animation: rotateSpinner 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+                                }
+                                .loading-progress-bar {
+                                    width: 100%;
+                                    height: 100%;
+                                    background: linear-gradient(90deg, transparent, #00a8ff, transparent);
+                                    animation: moveProgress 2.2s infinite linear;
+                                }
+                            `}</style>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-md)' }}>
+                                <div className="premium-spinner" />
+                                <div style={{ 
+                                    fontSize: '0.98rem', 
+                                    fontWeight: '600', 
+                                    color: '#00a8ff', 
+                                    minHeight: '26px',
+                                    transition: 'all 0.3s ease',
+                                    letterSpacing: '-0.3px',
+                                    marginTop: 'var(--space-xs)'
+                                }}>
+                                    {[
+                                        "🤖 대치동 입시 AI 비서가 분석을 시작합니다...",
+                                        "🔍 생활기록부 복원 데이터에서 관련 활동 추적 중...",
+                                        "📝 과거 누적된 입시 상담 메모 대조 중...",
+                                        "📂 업로드된 보고서/파일 분석 데이터 확인 중...",
+                                        "💡 대입 수시 학종 관점에서의 핵심 경쟁력 평가 중...",
+                                        "✍️ 질문에 대한 구체적인 인용 근거 정리 중...",
+                                        "✨ 1% 명품 컨설팅 전략을 담은 리포트 조립 중..."
+                                    ][searchLoadingStep]}
+                                </div>
+                                <div style={{ 
+                                    width: '100%', 
+                                    maxWidth: '280px', 
+                                    height: '5px', 
+                                    background: 'rgba(255,255,255,0.06)', 
+                                    borderRadius: '3px', 
+                                    overflow: 'hidden', 
+                                    marginTop: 'var(--space-xs)',
+                                    position: 'relative'
+                                }}>
+                                    <div className="loading-progress-bar" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {searchResult && (
                         <div className="card">
