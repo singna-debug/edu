@@ -44,7 +44,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { studentService } from '@/lib/services/studentService';
-import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore, BookRecord, SubjectResource, FileFolder, FileCategory } from '@/lib/types';
+import type { Student, Memo, StudentFile, GradeRecord, SubjectGrade, CompetencyScore, BookRecord, SubjectResource, FileFolder, FileCategory, SchoolRecord } from '@/lib/types';
 import { FILE_CATEGORIES } from '@/lib/types';
 import { calculateCurrentGrade, calculateEntryYear, getGradeText, calculateCurrentSemester } from '@/lib/schoolUtils';
 
@@ -55,7 +55,7 @@ ChartJS.register(
 
 // ============ TABS ============
 
-type Tab = 'overview' | 'memos' | 'files' | 'grades' | 'books' | 'resources' | 'analysis' | 'search' | 'log';
+type Tab = 'overview' | 'memos' | 'files' | 'grades' | 'books' | 'resources' | 'analysis' | 'search' | 'log' | 'record';
 
 export default function StudentDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
@@ -63,6 +63,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
     
     const [student, setStudent] = useState<Student | null>(null);
     const [activeTab, setActiveTab] = useState<Tab>('overview');
+    const [schoolRecordViewMode, setSchoolRecordViewMode] = useState<'pdf' | 'text'>('pdf');
     const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'idle'>('idle');
     const [userRole, setUserRole] = useState<'consultant' | 'manager'>('consultant');
     const [parentConsultantId, setParentConsultantId] = useState<string | null>(null);
@@ -73,7 +74,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
     // URL 파라미터를 기반으로 초기 탭 설정
     useEffect(() => {
-        if (urlTab && ['overview', 'memos', 'files', 'grades', 'books', 'resources', 'analysis', 'search', 'log'].includes(urlTab)) {
+        if (urlTab && ['overview', 'memos', 'files', 'grades', 'books', 'resources', 'analysis', 'search', 'log', 'record'].includes(urlTab)) {
             setActiveTab(urlTab as Tab);
         }
     }, [urlTab]);
@@ -204,6 +205,10 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
     // AI Analysis status
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    
+    // School Record (생기부) states
+    const [schoolRecord, setSchoolRecord] = useState<SchoolRecord | null>(null);
+    const [isAnalyzingSchoolRecord, setIsAnalyzingSchoolRecord] = useState(false);
     
     // Inline Teacher Memo state
     const [isEditingTeacherMemo, setIsEditingTeacherMemo] = useState(false);
@@ -826,13 +831,14 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
             // 2. Related data
             try {
-                const [m, f, g, b, fld, res] = await Promise.all([
+                const [m, f, g, b, fld, res, rec] = await Promise.all([
                     studentService.getMemos(studentId).catch(() => []),
                     studentService.getFiles(studentId).catch(() => []),
                     studentService.getGrades(studentId).catch(() => []),
                     studentService.getBooks(studentId).catch(() => []),
                     studentService.getFolders(studentId).catch(() => []),
                     studentService.getResources(studentId).catch(() => []),
+                    studentService.getSchoolRecord(studentId).catch(() => null),
                 ]);
                 
                 setMemos(m);
@@ -841,6 +847,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                 setBooks(b);
                 setFolders(fld);
                 setResources(res);
+                setSchoolRecord(rec);
 
                 const initialExpanded = new Set<string>([...FILE_CATEGORIES]);
                 fld.forEach(parent => {
@@ -933,11 +940,17 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             });
         });
 
+        // 생기부 실시간 구독
+        const unsubSchoolRecord = studentService.subscribeToSchoolRecord(student.id, (record) => {
+            setSchoolRecord(record);
+        });
+
         // 언마운트 시 리스너 해제 (메모리 누수 방지)
         return () => {
             console.log('[StudentDetail] Cleaning up real-time sync');
             unsubFiles();
             unsubFolders();
+            unsubSchoolRecord();
         };
     }, [student?.id]);
 
@@ -1044,6 +1057,7 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
 
     const tabs: { key: Tab; label: string } [] = [
         { key: 'overview', label: '개요' },
+        { key: 'record', label: '생기부' },
         { key: 'memos', label: '메모' },
         { key: 'files', label: '파일' },
         { key: 'grades', label: '성적' },
@@ -1096,6 +1110,73 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
             } catch (error) {
                 console.error("Error deleting memo:", error);
                 showToast("메모 삭제 중 오류가 발생했습니다.");
+            }
+        }
+    };
+
+    const handleUploadSchoolRecord = async (file: File) => {
+        if (!student) return;
+        
+        setIsAnalyzingSchoolRecord(true);
+        showToast('📄 생활기록부 PDF 분석을 시작합니다. (약 10~20초 소요)');
+        
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('studentId', student.id);
+            
+            const idToken = await auth.currentUser?.getIdToken();
+            const response = await fetch('/api/analyze-school-record', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${idToken}` },
+                body: formData,
+            });
+            
+            const result = await response.json();
+            
+            if (!result.success) {
+                throw new Error(result.error || '생활기록부 분석에 실패했습니다.');
+            }
+            
+            const { fileName, fileUrl, parsedText } = result.data;
+            
+            // Firestore에 저장
+            const recordId = await studentService.addSchoolRecord({
+                studentId: student.id,
+                fileName,
+                fileUrl,
+                parsedText,
+            });
+            
+            // 로컬 상태 즉시 업데이트 (실시간 동기화 대기 시간 제거)
+            setSchoolRecord({
+                id: recordId,
+                studentId: student.id,
+                fileName,
+                fileUrl,
+                parsedText,
+                uploadedAt: new Date().toISOString(),
+            });
+            
+            showToast('✅ 생활기록부가 성공적으로 정밀 분석 및 저장되었습니다.');
+        } catch (error: any) {
+            console.error("Error uploading school record:", error);
+            alert(`오류: ${error.message || '생활기록부 분석 중 문제가 발생했습니다.'}`);
+        } finally {
+            setIsAnalyzingSchoolRecord(false);
+        }
+    };
+
+    const handleDeleteSchoolRecord = async () => {
+        if (!schoolRecord) return;
+        if (confirm('생활기록부 기록을 삭제하시겠습니까?\n삭제 후에는 복구할 수 없습니다.')) {
+            try {
+                await studentService.deleteSchoolRecord(schoolRecord.id);
+                setSchoolRecord(null); // 로컬 상태 즉시 비우기
+                showToast('🗑️ 생활기록부 기록이 삭제되었습니다.');
+            } catch (error) {
+                console.error("Error deleting school record:", error);
+                showToast("생활기록부 삭제 중 오류가 발생했습니다.");
             }
         }
     };
@@ -1850,6 +1931,184 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
                     </button>
                 ))}
             </div>
+
+            {/* ===== RECORD TAB (생활기록부) ===== */}
+            {activeTab === 'record' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-lg)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            <h3 style={{ fontWeight: 800, fontSize: '1.4rem' }}>생활기록부(생기부) 관리</h3>
+                        </div>
+                    </div>
+
+                    {!schoolRecord ? (
+                        <div className="card-glass" style={{ 
+                            padding: 'var(--space-2xl)', 
+                            textAlign: 'center', 
+                            border: '2px dashed var(--primary-500)55',
+                            background: 'rgba(99, 102, 241, 0.03)',
+                            borderRadius: 'var(--radius-lg)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: 'var(--space-md)',
+                            transition: 'all 0.3s ease',
+                            cursor: 'pointer'
+                        }}
+                        onClick={() => {
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = '.pdf';
+                            input.onchange = async (e) => {
+                                const file = (e.target as HTMLInputElement).files?.[0];
+                                if (file) handleUploadSchoolRecord(file);
+                            };
+                            input.click();
+                        }}>
+                            <div className="avatar" style={{ background: 'var(--primary-900)55', color: 'var(--primary-400)', width: 64, height: 64, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {isAnalyzingSchoolRecord ? <Loader2 size={32} className="spinner" /> : <FileText size={32} />}
+                            </div>
+                            <div>
+                                <h4 style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '8px' }}>
+                                    {isAnalyzingSchoolRecord ? '생활기록부를 고속 분석하고 있습니다...' : '생활기록부 PDF 파일 업로드'}
+                                </h4>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                    {isAnalyzingSchoolRecord ? 'AI가 원문 텍스트를 고속 추출하는 중입니다. (약 10초 소요)' : '여기를 클릭하거나 PDF 파일을 끌어다 놓으세요.'}
+                                </p>
+                            </div>
+                            {!isAnalyzingSchoolRecord && (
+                                <button className="btn btn-primary" style={{ marginTop: 'var(--space-sm)' }}>
+                                    📁 PDF 파일 선택
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                            {/* Record File Status Card */}
+                            <div className="card-glass" style={{ 
+                                padding: 'var(--space-md) var(--space-lg)', 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                borderLeft: '4px solid var(--primary-500)',
+                                background: 'rgba(30, 41, 59, 0.4)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+                                    <div style={{ color: 'var(--primary-400)' }}><FileText size={28} /></div>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '1rem', color: 'white' }}>{schoolRecord.fileName}</div>
+                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                            업로드 일시: {new Date(schoolRecord.uploadedAt).toLocaleString('ko-KR')}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button 
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={() => {
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.accept = '.pdf';
+                                            input.onchange = async (e) => {
+                                                const file = (e.target as HTMLInputElement).files?.[0];
+                                                if (file) handleUploadSchoolRecord(file);
+                                            };
+                                            input.click();
+                                        }}
+                                        disabled={isAnalyzingSchoolRecord}
+                                    >
+                                        🔄 파일 교체
+                                    </button>
+                                    <button 
+                                        className="btn btn-ghost btn-sm" 
+                                        style={{ color: 'var(--danger-400)', border: '1px solid var(--danger-900)55' }}
+                                        onClick={handleDeleteSchoolRecord}
+                                        disabled={isAnalyzingSchoolRecord}
+                                    >
+                                        <Trash2 size={16} style={{ marginRight: '4px' }} /> 삭제
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Premium AI Digital Reconstruction Document Card */}
+                            {isAnalyzingSchoolRecord ? (
+                                <div className="card" style={{ padding: 'var(--space-xl)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '100px 0', gap: '16px' }}>
+                                        <Loader2 className="spinner" size={32} color="var(--primary-400)" />
+                                        <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>생활기록부 파일을 업로드하고 AI 정밀 디지털 복원 작업을 진행하고 있습니다...</p>
+                                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.78rem' }}>대용량 스캔 파일의 경우 이미지 판독 및 표 복구에 10~25초가 소요됩니다.</p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="card" style={{ 
+                                    padding: 'var(--space-lg)', 
+                                    display: 'flex', 
+                                    flexDirection: 'column', 
+                                    border: '1px solid rgba(255,255,255,0.05)',
+                                    background: 'var(--bg-card)',
+                                    minHeight: '800px',
+                                    width: '100%'
+                                }}>
+                                    {/* Header Controls */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                                        <h4 style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary-300)', fontSize: '1.1rem' }}>
+                                            <FileText size={22} /> 학생 생활기록부 원본 뷰어
+                                        </h4>
+                                        
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button
+                                                className="btn btn-secondary btn-sm"
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(schoolRecord.parsedText);
+                                                    showToast('📋 복원된 전체 원문 텍스트가 클립보드에 복사되었습니다!');
+                                                }}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                                            >
+                                                전체 텍스트 복사
+                                            </button>
+                                            
+                                            {schoolRecord.fileUrl && (
+                                                <button
+                                                    className="btn btn-ghost btn-sm"
+                                                    onClick={() => window.open(schoolRecord.fileUrl, '_blank')}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: 'var(--primary-400)', border: '1px solid var(--primary-900)55' }}
+                                                >
+                                                    원본 PDF 다운로드
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Full-Width Premium Interactive PDF Viewer Workspace */}
+                                    {schoolRecord.fileUrl ? (
+                                        <div style={{ 
+                                            flex: 1, 
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            background: 'rgba(15, 23, 42, 0.3)',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid rgba(255,255,255,0.05)',
+                                            overflow: 'hidden',
+                                            minHeight: '850px'
+                                        }}>
+                                            <iframe 
+                                                src={`${schoolRecord.fileUrl}#toolbar=0`} 
+                                                width="100%" 
+                                                height="800px" 
+                                                style={{ border: 'none' }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '100px 0', color: 'var(--text-muted)' }}>
+                                            생활기록부 파일이 존재하지 않습니다. 파일을 다시 업로드해주세요.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* ===== OVERVIEW TAB ===== */}
             {activeTab === 'overview' && (
@@ -3304,3 +3563,386 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         </div>
     );
 }
+
+// Helper function to intelligently merge consecutive tables split across page boundaries
+function mergeAdjacentMarkdownTables(markdown: string): string {
+    const lines = markdown.split('\n');
+    const processedLines: string[] = [];
+    
+    interface TableInfo {
+        headerLine: string;
+        separatorLine: string;
+        rows: { cells: string[]; originalLine: string }[];
+        startIndex: number;
+    }
+    
+    let lastTable: TableInfo | null = null;
+    let pendingBuffer: string[] = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        
+        if (trimmed.startsWith('|')) {
+            let tableLines = [line];
+            let j = i + 1;
+            while (j < lines.length && lines[j].trim().startsWith('|')) {
+                tableLines.push(lines[j]);
+                j++;
+            }
+            
+            if (tableLines.length >= 2) {
+                const headerLine = tableLines[0];
+                const separatorLine = tableLines[1];
+                const rowLines = tableLines.slice(2).filter(rl => {
+                    const rTrim = rl.trim();
+                    return !(rTrim.includes('---') || rTrim.includes(':---') || rTrim.includes('---:'));
+                });
+                
+                const parseRowCells = (rowStr: string) => {
+                    return rowStr.split('|').slice(1, -1).map(c => c.trim());
+                };
+                
+                const currentRows = rowLines.map(rl => ({
+                    cells: parseRowCells(rl),
+                    originalLine: rl
+                }));
+                
+                const cleanHeader = (hl: string) => hl.replace(/\s+/g, '').toLowerCase();
+                
+                if (lastTable && cleanHeader(lastTable.headerLine) === cleanHeader(headerLine)) {
+                    console.log(`[TableMerge] Merging matching tables for header: ${headerLine.trim()}`);
+                    
+                    // Copy down the last known non-empty value for vertically merged cells (like Grade/Semester)
+                    let lastKnownKey = '';
+                    for (let rIdx = lastTable.rows.length - 1; rIdx >= 0; rIdx--) {
+                        if (lastTable.rows[rIdx].cells[0]) {
+                            lastKnownKey = lastTable.rows[rIdx].cells[0];
+                            break;
+                        }
+                    }
+                    
+                    currentRows.forEach(r => {
+                        if (!r.cells[0] && lastKnownKey) {
+                            r.cells[0] = lastKnownKey;
+                            r.originalLine = '| ' + r.cells.join(' | ') + ' |';
+                        } else if (r.cells[0]) {
+                            lastKnownKey = r.cells[0];
+                        }
+                    });
+                    
+                    // Check if the first row of this table should be fused with the last row of the lastTable
+                    if (currentRows.length > 0 && lastTable.rows.length > 0) {
+                        const lastRow = lastTable.rows[lastTable.rows.length - 1];
+                        const firstRow = currentRows[0];
+                        
+                        if (lastRow.cells[0] && lastRow.cells[0] === firstRow.cells[0]) {
+                            console.log(`[TableMerge] Fusing split row text for key: ${lastRow.cells[0]}`);
+                            const mergedCells = [...lastRow.cells];
+                            for (let cIdx = 1; cIdx < mergedCells.length; cIdx++) {
+                                const prevVal = lastRow.cells[cIdx] || '';
+                                const nextVal = firstRow.cells[cIdx] || '';
+                                mergedCells[cIdx] = (prevVal + ' ' + nextVal).trim().replace(/\s+/g, ' ');
+                            }
+                            
+                            lastRow.cells = mergedCells;
+                            lastRow.originalLine = '| ' + mergedCells.join(' | ') + ' |';
+                            currentRows.shift();
+                        }
+                    }
+                    
+                    lastTable.rows.push(...currentRows);
+                    processedLines.length = lastTable.startIndex;
+                    
+                    processedLines.push(lastTable.headerLine);
+                    processedLines.push(lastTable.separatorLine);
+                    lastTable.rows.forEach(r => processedLines.push(r.originalLine));
+                    pendingBuffer = [];
+                } else {
+                    if (pendingBuffer.length > 0) {
+                        processedLines.push(...pendingBuffer);
+                        pendingBuffer = [];
+                    }
+                    
+                    const startIndex = processedLines.length;
+                    processedLines.push(headerLine);
+                    processedLines.push(separatorLine);
+                    currentRows.forEach(r => processedLines.push(r.originalLine));
+                    
+                    lastTable = {
+                        headerLine,
+                        separatorLine,
+                        rows: currentRows,
+                        startIndex
+                    };
+                }
+            } else {
+                if (pendingBuffer.length > 0) {
+                    processedLines.push(...pendingBuffer);
+                    pendingBuffer = [];
+                }
+                processedLines.push(...tableLines);
+                lastTable = null;
+            }
+            
+            i = j - 1;
+        } else {
+            pendingBuffer.push(line);
+        }
+    }
+    
+    if (pendingBuffer.length > 0) {
+        processedLines.push(...pendingBuffer);
+    }
+    
+    return processedLines.join('\n');
+}
+
+// Custom premium Markdown renderer preserving verbatim text and tables
+function MarkdownPreview({ content }: { content: string }) {
+    const mergedContent = mergeAdjacentMarkdownTables(content);
+    const lines = mergedContent.split('\n');
+    const elements: React.ReactNode[] = [];
+    let currentTable: { headers: string[]; rows: string[][] } | null = null;
+    let listType: 'ul' | 'ol' | null = null;
+    let listItems: string[] = [];
+
+    const flushList = (key: number) => {
+        if (!listType || listItems.length === 0) return null;
+        const res = listType === 'ul' ? (
+            <ul key={`ul-${key}`} className="md-ul">
+                {listItems.map((item, idx) => <li key={idx} dangerouslySetInnerHTML={{ __html: parseInline(item) }} />)}
+            </ul>
+        ) : (
+            <ol key={`ol-${key}`} className="md-ol">
+                {listItems.map((item, idx) => <li key={idx} dangerouslySetInnerHTML={{ __html: parseInline(item) }} />)}
+            </ol>
+        );
+        listType = null;
+        listItems = [];
+        return res;
+    };
+
+    const flushTable = (key: number) => {
+        if (!currentTable) return null;
+        
+        // Find the maximum number of columns in any row (including headers)
+        const maxCols = Math.max(
+            currentTable.headers.length,
+            ...currentTable.rows.map(row => row.length)
+        );
+
+        // Pad headers if they have fewer columns
+        const paddedHeaders = [...currentTable.headers];
+        while (paddedHeaders.length < maxCols) {
+            paddedHeaders.push('');
+        }
+
+        // Pad each row if it has fewer columns
+        const paddedRows = currentTable.rows.map(row => {
+            const newRow = [...row];
+            while (newRow.length < maxCols) {
+                newRow.push('');
+            }
+            return newRow;
+        });
+
+        const res = (
+            <div key={`table-${key}`} className="md-table-wrapper">
+                <table className="md-table">
+                    <thead>
+                        <tr>
+                            {paddedHeaders.map((h, idx) => (
+                                <th key={idx} dangerouslySetInnerHTML={{ __html: parseInline(h.trim()) }} />
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {paddedRows.map((row, rowIdx) => (
+                            <tr key={rowIdx}>
+                                {row.map((cell, cellIdx) => (
+                                    <td key={cellIdx} dangerouslySetInnerHTML={{ __html: parseInline(cell.trim()) }} />
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+        currentTable = null;
+        return res;
+    };
+
+    const parseInline = (text: string): string => {
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code>$1</code>');
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (line.startsWith('|')) {
+            const listEl = flushList(i);
+            if (listEl) elements.push(listEl);
+
+            const parts = line.split('|').slice(1, -1);
+            if (parts.length > 0) {
+                if (parts.every(p => p.trim().startsWith('-') || p.trim().startsWith(':') || p.trim() === '')) {
+                    continue;
+                }
+                
+                if (!currentTable) {
+                    currentTable = { headers: parts, rows: [] };
+                } else {
+                    currentTable.rows.push(parts);
+                }
+            }
+            continue;
+        } else {
+            if (currentTable) {
+                const tableEl = flushTable(i);
+                if (tableEl) elements.push(tableEl);
+            }
+        }
+
+        if (line.startsWith('- ') || line.startsWith('* ') || line.match(/^\d+\.\s/)) {
+            const isOrdered = !!line.match(/^\d+\.\s/);
+            const content = isOrdered ? line.replace(/^\d+\.\s/, '') : line.substring(2);
+            
+            const targetType = isOrdered ? 'ol' : 'ul';
+            if (listType && listType !== targetType) {
+                const listEl = flushList(i);
+                if (listEl) elements.push(listEl);
+            }
+
+            listType = targetType;
+            listItems.push(content);
+            continue;
+        } else {
+            if (listItems.length > 0) {
+                const listEl = flushList(i);
+                if (listEl) elements.push(listEl);
+            }
+        }
+
+        if (line.startsWith('#')) {
+            const match = line.match(/^(#{1,6})\s+(.*)$/);
+            if (match) {
+                const level = match[1].length;
+                const text = match[2];
+                const HeadingTag = `h${level}` as any;
+                
+                let style = {};
+                if (level === 1) style = { borderBottom: '2px solid var(--primary-500)', paddingBottom: '8px', marginTop: '24px', marginBottom: '16px', fontWeight: 800, color: 'white' };
+                else if (level === 2) style = { borderBottom: '1px solid var(--border-color)', paddingBottom: '6px', marginTop: '20px', marginBottom: '12px', fontWeight: 700, color: 'white' };
+                else style = { marginTop: '16px', marginBottom: '8px', fontWeight: 600, color: 'white' };
+
+                elements.push(
+                    <HeadingTag key={i} style={style} dangerouslySetInnerHTML={{ __html: parseInline(text) }} />
+                );
+                continue;
+            }
+        }
+
+        if (line.trim() === '') {
+            continue;
+        }
+
+        elements.push(
+            <p key={i} style={{ lineHeight: 1.7, marginBottom: '12px', color: 'var(--text-secondary)' }} dangerouslySetInnerHTML={{ __html: parseInline(line) }} />
+        );
+    }
+
+    if (currentTable) {
+        const tableEl = flushTable(lines.length);
+        if (tableEl) elements.push(tableEl);
+    }
+    if (listItems.length > 0) {
+        const listEl = flushList(lines.length);
+        if (listEl) elements.push(listEl);
+    }
+
+    return (
+        <div className="markdown-preview" style={{ color: 'var(--text-primary)' }}>
+            {elements}
+            <style jsx global>{`
+                .md-table-wrapper {
+                    overflow-x: auto;
+                    margin: 20px 0;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: var(--radius-md);
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+                    background: rgba(30, 41, 59, 0.2);
+                }
+                .md-table-wrapper::-webkit-scrollbar {
+                    height: 8px;
+                }
+                .md-table-wrapper::-webkit-scrollbar-track {
+                    background: rgba(255, 255, 255, 0.02);
+                    border-radius: var(--radius-md);
+                }
+                .md-table-wrapper::-webkit-scrollbar-thumb {
+                    background: rgba(255, 255, 255, 0.1);
+                    border-radius: var(--radius-md);
+                }
+                .md-table-wrapper::-webkit-scrollbar-thumb:hover {
+                    background: rgba(255, 255, 255, 0.2);
+                }
+                .md-table {
+                    width: 100%;
+                    min-width: 960px;
+                    border-collapse: collapse;
+                    font-size: 0.88rem;
+                    text-align: center;
+                }
+                .md-table th {
+                    background: rgba(99, 102, 241, 0.15);
+                    color: var(--primary-300);
+                    font-weight: 700;
+                    padding: 14px 18px;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    white-space: nowrap;
+                }
+                .md-table td {
+                    padding: 14px 18px;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    color: #cbd5e1;
+                    vertical-align: middle;
+                    white-space: nowrap;
+                }
+                .md-table td:nth-child(2),
+                .md-table td:last-child {
+                    white-space: normal;
+                    word-break: keep-all;
+                    text-align: left;
+                    min-width: 280px;
+                }
+                .md-table tr {
+                    transition: background 0.15s ease;
+                }
+                .md-table tr:hover {
+                    background: rgba(255, 255, 255, 0.03);
+                }
+                .md-ul, .md-ol {
+                    padding-left: 20px;
+                    margin-bottom: 14px;
+                    color: var(--text-secondary);
+                }
+                .md-ul li, .md-ol li {
+                    line-height: 1.7;
+                    margin-bottom: 6px;
+                }
+                .markdown-preview code {
+                    background: rgba(255, 255, 255, 0.08);
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-family: monospace;
+                    font-size: 0.85em;
+                }
+            `}</style>
+        </div>
+    );
+}
+
