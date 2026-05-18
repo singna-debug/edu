@@ -1542,11 +1542,39 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         });
     };
 
-    const handleSearch = () => {
+    const handleSearch = async () => {
         if (!searchQuery.trim()) return;
         setIsSearching(true);
         const q = searchQuery.trim().toLowerCase();
 
+        // 1. 실서버 모드(secure)일 경우, 백엔드의 대용량 Gemini 고속 RAG 검색 API 호출
+        if (typeof window !== 'undefined' && localStorage.getItem('authMode') === 'secure') {
+            try {
+                const idToken = await auth.currentUser?.getIdToken();
+                const resp = await fetch('/api/analysis/search', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: searchQuery.trim(), studentId: student?.id })
+                });
+                const resData = await resp.json();
+                if (resData.success) {
+                    setSearchResult(resData.data);
+                } else {
+                    showToast(`❌ 검색 실패: ${resData.error}`);
+                }
+            } catch (err: any) {
+                console.error("AI Search Error:", err);
+                showToast(`❌ 검색 오류: ${err.message}`);
+            } finally {
+                setIsSearching(false);
+            }
+            return;
+        }
+
+        // 2. 데모 모드일 때는 기존 클라이언트 사이드 고속 검색 유지
         setTimeout(() => {
             // 성적/평균/내신/점수 관련 질문 감지
             const isGradeQuery = ['성적', '점수', '평균', '등급', '내신', '모의', '중간', '기말', '몇점', '몇 점', '알려줘', '알려줄래'].some(k => q.includes(k));
