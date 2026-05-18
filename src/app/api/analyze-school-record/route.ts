@@ -1,37 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth } from '@/lib/auth-server';
 import { parseSchoolRecordPDF } from '@/lib/gemini';
-import path from 'path';
-import { pathToFileURL } from 'url';
-
-// Load legacy Node-compatible build of pdfjs-dist directly to avoid Next.js C++ canvas binder issues
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.mjs');
-
-// Format workerSrc to a proper file:// scheme URL to satisfy the default ESM loader in Node/Next.js chunks
-const workerPath = path.resolve('./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
-pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-
-async function extractPDFText(buffer: Buffer): Promise<string> {
-    const uint8Array = new Uint8Array(buffer);
-    const loadingTask = pdfjsLib.getDocument({ 
-        data: uint8Array,
-        useSystemFonts: true,
-        disableFontFace: true
-    });
-    const pdfDoc = await loadingTask.promise;
-    const numPages = pdfDoc.numPages;
-    let fullText = '';
-    
-    for (let i = 1; i <= numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-            .map((item: any) => item.str)
-            .join(' ');
-        fullText += pageText + '\n\n';
-    }
-    return fullText.trim();
-}
 
 export async function POST(req: NextRequest) {
     try {
@@ -79,8 +48,12 @@ export async function POST(req: NextRequest) {
         const arrayBuffer = await fileResponse.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        console.log('[SchoolRecord] Initiating local fast-text extraction using pdfjs-dist...');
-        const extractedText = await extractPDFText(buffer);
+        console.log('[SchoolRecord] Initiating local fast-text extraction using legacy pdf-parse...');
+        
+        // Dynamic require bypasses Next.js bundler entirely, avoiding any fs/chunk issues
+        const pdf = eval('require')('pdf-parse');
+        const parsedData = await pdf(buffer);
+        const extractedText = parsedData.text.trim();
 
         // If the PDF has high quality selectable text (contains actual words)
         if (extractedText.length > 200) {
