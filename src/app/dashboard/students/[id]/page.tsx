@@ -1547,8 +1547,8 @@ export default function StudentDetailPage({ params }: { params: Promise<{ id: st
         setIsSearching(true);
         const q = searchQuery.trim().toLowerCase();
 
-        // 1. 실서버 모드(secure)일 경우, 백엔드의 대용량 Gemini 고속 RAG 검색 API 호출
-        if (typeof window !== 'undefined' && localStorage.getItem('authMode') === 'secure') {
+        // 1. 실서버 모드일 경우 (demo가 아닐 때), 백엔드의 대용량 Gemini 고속 RAG 검색 API 호출
+        if (typeof window !== 'undefined' && localStorage.getItem('authMode') !== 'demo') {
             try {
                 const idToken = await auth.currentUser?.getIdToken();
                 const resp = await fetch('/api/analysis/search', {
