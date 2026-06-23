@@ -20,10 +20,10 @@ export default function SettingsPage() {
     const [hasDriveToken, setHasDriveToken] = useState<boolean | null>(null);
     const [hasRefreshToken, setHasRefreshToken] = useState<boolean>(false);
 
-    const showToast = (message: string) => {
+    const showToast = useCallback((message: string) => {
         setToast(message);
         setTimeout(() => setToast(null), 3000);
-    };
+    }, []);
 
     const fetchPendingConsultants = useCallback(async () => {
         const role = localStorage.getItem('role');
@@ -90,7 +90,23 @@ export default function SettingsPage() {
             setHasDriveToken(true);
             setHasRefreshToken(true);
         }
-    }, [fetchManagers, fetchPendingConsultants]);
+
+        // Check query parameters for Google OAuth callback results
+        const params = new URLSearchParams(window.location.search);
+        const success = params.get('success');
+        const error = params.get('error');
+        const message = params.get('message');
+
+        if (success === 'true') {
+            showToast('✅ 구글 연동 정보가 정식 갱신되었습니다. 이제 폴더 생성이 가능합니다.');
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+        } else if (error === 'true') {
+            showToast(`❌ 연동 실패: ${message || '알 수 없는 오류'}`);
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+        }
+    }, [fetchManagers, fetchPendingConsultants, showToast]);
 
     const handleAddManager = async () => {
         if (!newManagerEmail.trim() || !newManagerEmail.includes('@')) {
@@ -147,53 +163,15 @@ export default function SettingsPage() {
         }
     };
 
-    const handleReconnectGoogle = async () => {
-        setIsAdding(true);
-        try {
-            const { auth } = await import('@/lib/firebase');
-            const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
-            const provider = new GoogleAuthProvider();
-            provider.addScope('https://www.googleapis.com/auth/drive.file');
-            provider.setCustomParameters({
-                access_type: 'offline',
-                prompt: 'consent'
-            });
-
-            const result = await signInWithPopup(auth, provider);
-            const user = result.user;
-            const credential = GoogleAuthProvider.credentialFromResult(result);
-
-            if (credential?.accessToken) {
-                // [핵심 수정] Firebase Auth의 ID 토큰이 아니라, Google OAuth용 Access/Refresh Token을 타겟팅
-                const tokenResponse = (result as any)._tokenResponse;
-
-                // Google OAuth2용 실제 토큰들
-                const googleAccessToken = credential.accessToken; // 보통 'ya29.'으로 시작
-                const googleRefreshToken = tokenResponse?.oauthRefreshToken; // '1/'로 시작
-
-                if (!googleRefreshToken) {
-                    console.warn("[Auth] No Refresh Token. Ensure 'prompt: consent' is active.");
-                }
-
-                await consultantService.saveTokens(user.uid, {
-                    google_access_token: googleAccessToken,
-                    ...(googleRefreshToken ? { google_refresh_token: googleRefreshToken } : {}),
-                    google_token_expiry: Date.now() + 3500 * 1000
-                });
-                
-                // 로컬 상태 즉시 갱신
-                setHasDriveToken(true);
-                if (googleRefreshToken) {
-                    setHasRefreshToken(true);
-                }
-                showToast('✅ 구글 연동 정보가 정식 갱신되었습니다. 이제 폴더 생성이 가능합니다.');
-            }
-        } catch (error: any) {
-            console.error('Re-auth error:', error);
-            showToast(`❌ 연동 실패: ${error.message}`);
-        } finally {
-            setIsAdding(false);
+    const handleReconnectGoogle = () => {
+        const userId = localStorage.getItem('userId');
+        if (!userId) {
+            showToast('❌ 사용자 ID를 찾을 수 없습니다. 다시 로그인해 주세요.');
+            return;
         }
+        setIsAdding(true);
+        // Redirect the browser to the server-side login route
+        window.location.href = `/api/auth/google/login?userId=${userId}`;
     };
 
     return (
