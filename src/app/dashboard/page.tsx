@@ -544,53 +544,93 @@ export default function DashboardPage() {
                     <div className="card-header">
                         <div>
                             <h3 className="card-title">최근 활동</h3>
-                            <p className="card-subtitle">{isDemo ? '최근 메모 및 기록' : '활동 내역이 없습니다'}</p>
+                            <p className="card-subtitle">최근 메모 및 파일 등록 기록</p>
                         </div>
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-                        {memos.map((memo) => (
-                            <div
-                                key={memo.id}
-                                style={{
-                                    padding: 'var(--space-md)',
-                                    background: 'var(--bg-secondary)',
-                                    borderRadius: 'var(--radius-md)',
-                                    borderLeft: '3px solid var(--primary-500)',
-                                }}
-                            >
+                        {(() => {
+                            const activities = [
+                                ...memos.map(m => ({
+                                    id: m.id,
+                                    studentId: m.studentId,
+                                    studentName: m.studentName,
+                                    category: m.category,
+                                    type: 'memo' as const,
+                                    content: m.content,
+                                    date: m.createdAt,
+                                    tags: m.tags || []
+                                })),
+                                ...files.map(f => ({
+                                    id: f.id,
+                                    studentId: f.studentId,
+                                    studentName: f.studentName,
+                                    category: f.category,
+                                    type: 'file' as const,
+                                    content: `📁 파일 등록: ${f.fileName}${f.summary ? ` - ${f.summary}` : ''}`,
+                                    date: f.uploadedAt,
+                                    tags: f.tags || []
+                                }))
+                            ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                            if (activities.length === 0) {
+                                return (
+                                    <div style={{ textAlign: 'center', padding: 'var(--space-lg)', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                                        최근 활동 내역이 없습니다.
+                                    </div>
+                                );
+                            }
+
+                            return activities.slice(0, 10).map((activity) => (
                                 <div
+                                    key={activity.id}
                                     style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        marginBottom: 'var(--space-xs)',
+                                        padding: 'var(--space-md)',
+                                        background: 'var(--bg-secondary)',
+                                        borderRadius: 'var(--radius-md)',
+                                        borderLeft: activity.type === 'file' 
+                                            ? '3px solid var(--accent-400)' 
+                                            : '3px solid var(--primary-400)',
                                     }}
                                 >
-                                    <span
+                                    <div
                                         style={{
-                                            fontWeight: 600,
-                                            fontSize: '0.85rem',
-                                            color: 'var(--primary-400)',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            marginBottom: 'var(--space-xs)',
                                         }}
                                     >
-                                        {memo.studentName}
-                                    </span>
-                                    <span className="tag tag-green" style={{ fontSize: '0.7rem' }}>
-                                        {memo.category}
-                                    </span>
-                                </div>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {memo.content}
-                                </p>
-                                <div style={{ display: 'flex', gap: 'var(--space-xs)', marginTop: 'var(--space-sm)' }}>
-                                    {memo.tags.map((tag) => (
-                                        <span key={tag} className="tag tag-gray" style={{ fontSize: '0.68rem' }}>
-                                            #{tag}
+                                        <span
+                                            style={{
+                                                fontWeight: 600,
+                                                fontSize: '0.85rem',
+                                                color: activity.type === 'file' ? 'var(--accent-400)' : 'var(--primary-400)',
+                                            }}
+                                        >
+                                            {activity.studentName}
                                         </span>
-                                    ))}
+                                        <span 
+                                            className={activity.type === 'file' ? 'tag tag-blue' : 'tag tag-green'} 
+                                            style={{ fontSize: '0.68rem', padding: '2px 6px' }}
+                                        >
+                                            {activity.type === 'file' ? '파일' : '메모'} · {activity.category}
+                                        </span>
+                                    </div>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {activity.content}
+                                    </p>
+                                    {activity.tags && activity.tags.length > 0 && (
+                                        <div style={{ display: 'flex', gap: 'var(--space-xs)', marginTop: 'var(--space-sm)' }}>
+                                            {activity.tags.map((tag) => (
+                                                <span key={tag} className="tag tag-gray" style={{ fontSize: '0.68rem' }}>
+                                                    #{tag}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            ));
+                        })()}
                     </div>
                 </div>
             </div>
