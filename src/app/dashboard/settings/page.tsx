@@ -17,6 +17,8 @@ export default function SettingsPage() {
     const [pendingConsultants, setPendingConsultants] = useState<any[]>([]);
     const [isLoadingPending, setIsLoadingPending] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
+    const [hasDriveToken, setHasDriveToken] = useState<boolean | null>(null);
+    const [hasRefreshToken, setHasRefreshToken] = useState<boolean>(false);
 
     const showToast = (message: string) => {
         setToast(message);
@@ -59,6 +61,8 @@ export default function SettingsPage() {
         const name = localStorage.getItem('userName');
         const email = localStorage.getItem('userEmail');
         const role = (localStorage.getItem('role') as 'consultant' | 'manager') || 'consultant';
+        const userId = localStorage.getItem('userId');
+        const parentId = localStorage.getItem('parentId');
 
         setUserName(name || (mode === 'demo' ? '데모 컨설턴트' : '정식 컨설턴트'));
         setUserEmail(email || (mode === 'demo' ? 'demo@eduflow.ai' : 'consultant@eduflow.ai'));
@@ -68,7 +72,25 @@ export default function SettingsPage() {
             fetchManagers();
             fetchPendingConsultants();
         }
-    }, [fetchManagers]);
+
+        const targetId = role === 'manager' ? parentId : userId;
+        if (targetId && mode !== 'demo') {
+            consultantService.getConsultant(targetId).then(data => {
+                if (data) {
+                    const hasAcc = !!(data.google_access_token && data.google_access_token !== 'undefined' && data.google_access_token.length > 10);
+                    const hasRef = !!(data.google_refresh_token && data.google_refresh_token !== 'undefined' && data.google_refresh_token.length > 10);
+                    setHasDriveToken(hasAcc);
+                    setHasRefreshToken(hasRef);
+                } else {
+                    setHasDriveToken(false);
+                    setHasRefreshToken(false);
+                }
+            }).catch(err => console.error("Error fetching consultant tokens:", err));
+        } else if (mode === 'demo') {
+            setHasDriveToken(true);
+            setHasRefreshToken(true);
+        }
+    }, [fetchManagers, fetchPendingConsultants]);
 
     const handleAddManager = async () => {
         if (!newManagerEmail.trim() || !newManagerEmail.includes('@')) {
@@ -155,9 +177,15 @@ export default function SettingsPage() {
 
                 await consultantService.saveTokens(user.uid, {
                     google_access_token: googleAccessToken,
-                    google_refresh_token: googleRefreshToken || '', // 명시적 빈 문자열 처리
+                    ...(googleRefreshToken ? { google_refresh_token: googleRefreshToken } : {}),
                     google_token_expiry: Date.now() + 3500 * 1000
                 });
+                
+                // 로컬 상태 즉시 갱신
+                setHasDriveToken(true);
+                if (googleRefreshToken) {
+                    setHasRefreshToken(true);
+                }
                 showToast('✅ 구글 연동 정보가 정식 갱신되었습니다. 이제 폴더 생성이 가능합니다.');
             }
         } catch (error: any) {
@@ -204,13 +232,36 @@ export default function SettingsPage() {
                         <div className="form-group">
                             <label className="form-label">Google Drive 상태</label>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', borderRadius: '8px', background: 'rgba(52, 211, 153, 0.1)', color: 'var(--success-400)', fontSize: '0.875rem' }}>
-                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success-400)' }}></div>
-                                    연결됨 (EduFlow_Files 루트 사용 중)
-                                </div>
-                                <button className="btn btn-secondary btn-sm" onClick={handleReconnectGoogle} style={{ width: 'fit-content', border: '1px solid var(--border-color)', background: 'transparent' }}>
-                                    <RefreshCw size={14} style={{ marginRight: '6px' }} /> 구글 계정 다시 연결 (인증 에러 시 클릭)
-                                </button>
+                                {hasDriveToken === null ? (
+                                    <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>불러오는 중...</div>
+                                ) : hasDriveToken ? (
+                                    hasRefreshToken ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', borderRadius: '8px', background: 'rgba(52, 211, 153, 0.1)', color: 'var(--success-400)', fontSize: '0.875rem' }}>
+                                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success-400)' }}></div>
+                                            연결됨 (자동 갱신 활성화됨)
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger-400)', fontSize: '0.875rem' }}>
+                                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger-400)' }}></div>
+                                            연결 상태 불안정 (1시간 후 만료 예정. 구글 계정을 다시 연결해 주세요.)
+                                        </div>
+                                    )
+                                ) : (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--text-muted)' }}></div>
+                                        연결 안 됨 (구글 드라이브 동기화 미활성 상태)
+                                    </div>
+                                )}
+                                
+                                {userRole === 'consultant' ? (
+                                    <button className="btn btn-secondary btn-sm" onClick={handleReconnectGoogle} style={{ width: 'fit-content', border: '1px solid var(--border-color)', background: 'transparent' }}>
+                                        <RefreshCw size={14} style={{ marginRight: '6px' }} /> 구글 계정 다시 연결 (인증 에러 시 클릭)
+                                    </button>
+                                ) : (
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                        ⚠️ 구글 드라이브 연동은 대표 컨설턴트 계정으로 로그인해야만 다시 연결(갱신)할 수 있습니다.
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="form-group">

@@ -7,8 +7,10 @@ import { verifyAuth } from '@/lib/auth-server'; // 추가됨
 import type { StudentFile } from '@/lib/types';
 
 export async function POST(req: NextRequest) {
+    let consultantId: string | undefined;
+    let decodedToken: any;
     try {
-        const decodedToken = await verifyAuth(req);
+        decodedToken = await verifyAuth(req);
         if (!decodedToken) {
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
         }
@@ -16,7 +18,7 @@ export async function POST(req: NextRequest) {
         const formData = await req.formData();
         const file = formData.get('file') as File;
         const studentId = formData.get('studentId') as string;
-        const consultantId = formData.get('consultantId') as string;
+        consultantId = formData.get('consultantId') as string;
         
         const category = formData.get('category') as string;
         const semester = formData.get('semester') as string;
@@ -166,6 +168,34 @@ export async function POST(req: NextRequest) {
                     }, { status: 400 });
                 }
                 
+                // 구글 드라이브 인증/크레덴셜 에러 처리
+                const errorMsg = pathErr.message || '';
+                if (
+                    errorMsg.includes('invalid authentication credentials') ||
+                    errorMsg.includes('Invalid Credentials') ||
+                    errorMsg.includes('invalid_grant') ||
+                    errorMsg.includes('unauthorized') ||
+                    errorMsg.includes('auth') ||
+                    pathErr.status === 401 ||
+                    pathErr.code === 401
+                ) {
+                    if (consultantId) {
+                        const dbRef = getDb();
+                        await dbRef.collection('consultants').doc(consultantId).update({
+                            google_access_token: '',
+                            google_refresh_token: ''
+                        }).catch(e => console.error('[Upload] Failed to clear invalid tokens in DB:', e));
+                    }
+                    const isManager = consultantId && decodedToken.uid !== consultantId;
+                    const friendlyError = isManager
+                        ? '구글 드라이브 연동 세션이 만료되었습니다. 조교 계정에서는 연동을 직접 갱신할 수 없으므로, 대표 컨설턴트님께 [설정] 페이지에서 [구글 계정 다시 연결]을 진행해 달라고 요청해 주세요.'
+                        : '구글 드라이브 연동(로그인) 세션이 만료되었습니다. 우측 상단의 [설정] 메뉴로 이동하여 [구글 계정 다시 연결] 버튼을 클릭해 주세요.';
+                    return NextResponse.json({ 
+                        success: false, 
+                        error: friendlyError 
+                    }, { status: 401 });
+                }
+                
                 // 그 외의 에러는 그대로 프론트로 던져서 원인을 파악하게 함
                 return NextResponse.json({ 
                     success: false, 
@@ -195,6 +225,35 @@ export async function POST(req: NextRequest) {
                 console.log(`[Upload] Drive Sync Success: ${driveFileId}`);
             } catch (err: any) {
                 console.error(`[Upload] Drive Sync error: ${err.message}`);
+                
+                // 구글 드라이브 인증/크레덴셜 에러 처리
+                const errorMsg = err.message || '';
+                if (
+                    errorMsg.includes('invalid authentication credentials') ||
+                    errorMsg.includes('Invalid Credentials') ||
+                    errorMsg.includes('invalid_grant') ||
+                    errorMsg.includes('unauthorized') ||
+                    errorMsg.includes('auth') ||
+                    err.status === 401 ||
+                    err.code === 401
+                ) {
+                    if (consultantId) {
+                        const dbRef = getDb();
+                        await dbRef.collection('consultants').doc(consultantId).update({
+                            google_access_token: '',
+                            google_refresh_token: ''
+                        }).catch(e => console.error('[Upload] Failed to clear invalid tokens in DB:', e));
+                    }
+                    const isManager = consultantId && decodedToken.uid !== consultantId;
+                    const friendlyError = isManager
+                        ? '구글 드라이브 연동 세션이 만료되었습니다. 조교 계정에서는 연동을 직접 갱신할 수 없으므로, 대표 컨설턴트님께 [설정] 페이지에서 [구글 계정 다시 연결]을 진행해 달라고 요청해 주세요.'
+                        : '구글 드라이브 연동(로그인) 세션이 만료되었습니다. 우측 상단의 [설정] 메뉴로 이동하여 [구글 계정 다시 연결] 버튼을 클릭해 주세요.';
+                    return NextResponse.json({ 
+                        success: false, 
+                        error: friendlyError 
+                    }, { status: 401 });
+                }
+                
                 return NextResponse.json({ 
                     success: false, 
                     error: `파일 업로드 실패: ${err.message}` 

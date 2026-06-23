@@ -4,15 +4,18 @@ import { getDb } from '@/lib/firebaseAdmin';
 import { verifyAuth } from '@/lib/auth-server';
 
 export async function POST(req: NextRequest) {
+    let consultantId: string | undefined;
+    let decodedToken: any;
     try {
-        const decodedToken = await verifyAuth(req);
+        decodedToken = await verifyAuth(req);
         if (!decodedToken) {
             console.error('[API Drive] Unauthorized access attempt');
             return NextResponse.json({ success: false, error: '인증되지 않은 접근입니다. 다시 로그인해 주세요.' }, { status: 401 });
         }
 
         const body = await req.json();
-        const { action, name, parentId, fileId, oldParentId, newParentId, consultantId } = body;
+        const { action, name, parentId, fileId, oldParentId, newParentId } = body;
+        consultantId = body.consultantId;
         
         // [중요] 권한 체크: 본인이거나 초대된 조교인 경우 허용
         if (consultantId && decodedToken.uid !== consultantId) {
@@ -103,6 +106,35 @@ export async function POST(req: NextRequest) {
         }
     } catch (error: any) {
         console.error('API Drive Error:', error);
+        
+        // 구글 드라이브 인증/크레덴셜 에러 처리
+        const errorMsg = error.message || '';
+        if (
+            errorMsg.includes('invalid authentication credentials') ||
+            errorMsg.includes('Invalid Credentials') ||
+            errorMsg.includes('invalid_grant') ||
+            errorMsg.includes('unauthorized') ||
+            errorMsg.includes('auth') ||
+            error.status === 401 ||
+            error.code === 401
+        ) {
+            if (consultantId) {
+                const dbRef = getDb();
+                await dbRef.collection('consultants').doc(consultantId).update({
+                    google_access_token: '',
+                    google_refresh_token: ''
+                }).catch(e => console.error('[API Drive] Failed to clear invalid tokens in DB:', e));
+            }
+            const isManager = consultantId && decodedToken && decodedToken.uid !== consultantId;
+            const friendlyError = isManager
+                ? '구글 드라이브 연동 세션이 만료되었습니다. 조교 계정에서는 연동을 직접 갱신할 수 없으므로, 대표 컨설턴트님께 [설정] 페이지에서 [구글 계정 다시 연결]을 진행해 달라고 요청해 주세요.'
+                : '구글 드라이브 연동(로그인) 세션이 만료되었습니다. 우측 상단의 [설정] 메뉴로 이동하여 [구글 계정 다시 연결] 버튼을 클릭해 주세요.';
+            return NextResponse.json({ 
+                success: false, 
+                error: friendlyError 
+            }, { status: 401 });
+        }
+        
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 }
